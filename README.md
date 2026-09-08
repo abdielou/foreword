@@ -28,7 +28,7 @@ The panel is an extension page rendered in an iframe, so site styles and content
 
 1. Clone this repository.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the repository folder.
-3. The options page opens on first install. Paste an OpenRouter key from [openrouter.ai/keys](https://openrouter.ai/keys), pick a writing model (any OpenRouter model id; the page loads the live list and can pick the newest Claude for you), click **Test**, then **Save**.
+3. The options page opens on first install. Paste an OpenRouter key from [openrouter.ai/keys](https://openrouter.ai/keys), pick a writing model (any OpenRouter model id; the page loads the live list and the "Newest from…" menu fills in the latest model from any provider), click **Test**, then **Save**.
 
 No build step is needed. The extension is plain HTML, CSS, and JavaScript.
 

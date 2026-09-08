@@ -32,6 +32,7 @@ async function loadModels() {
     if (r?.ok && r.models?.length) {
       models = r.models.sort((a, b) => a.id.localeCompare(b.id));
       fillDatalist(models);
+      fillProviders();
       describeModel($("model").value.trim(), $("modelStatus"));
       describeModel($("searchModel").value.trim(), $("searchModelStatus"));
       return;
@@ -87,13 +88,37 @@ $("testKey").addEventListener("click", async () => {
   setStatus($("keyStatus"), r?.ok ? `Key works${r.info ? ` (${r.info})` : ""}.` : `Key rejected: ${r?.error || "unknown error"}`, Boolean(r?.ok));
 });
 
-$("pickModel").addEventListener("click", () => {
-  const claude = models
-    .filter((m) => m.id.startsWith("anthropic/claude") && m.structured !== false && !/haiku|:beta|:thinking/.test(m.id))
-    .sort((a, b) => b.created - a.created);
-  if (!claude.length) return setStatus($("modelStatus"), "Model list not loaded yet.", false);
-  $("model").value = claude[0].id;
-  describeModel(claude[0].id, $("modelStatus"));
+function newestFrom(provider) {
+  return models
+    .filter((m) => m.id.startsWith(`${provider}/`) && m.structured !== false && !/:free|:beta|:thinking|:extended|:online|nitro|preview|exp/i.test(m.id))
+    .sort((a, b) => b.created - a.created)[0];
+}
+
+function fillProviders() {
+  const sel = $("pickProvider");
+  while (sel.options.length > 1) sel.remove(1);
+  const counts = new Map();
+  for (const m of models) {
+    const p = m.id.split("/")[0];
+    if (m.id.includes("/")) counts.set(p, (counts.get(p) || 0) + 1);
+  }
+  const providers = [...counts.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  for (const p of providers) {
+    const o = document.createElement("option");
+    o.value = p;
+    o.textContent = p;
+    sel.appendChild(o);
+  }
+}
+
+$("pickProvider").addEventListener("change", () => {
+  const provider = $("pickProvider").value;
+  $("pickProvider").value = "";
+  if (!provider) return;
+  const m = newestFrom(provider);
+  if (!m) return setStatus($("modelStatus"), `No suitable model found for ${provider}.`, false);
+  $("model").value = m.id;
+  describeModel(m.id, $("modelStatus"));
 });
 
 $("model").addEventListener("change", () => describeModel($("model").value.trim(), $("modelStatus")));

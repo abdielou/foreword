@@ -24,6 +24,7 @@ input[type="text"], input[type="password"], input[type="number"], select {
 .primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
 .ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
 .ghost:hover { background: var(--chip); }
+select.ghost { width: auto; }
 .actions { display: flex; align-items: center; gap: 12px; padding: 18px 0; border-top: 1px solid var(--line); }
 .status { font-size: 12.5px; min-height: 1.2em; margin-top: 6px; }
 .status.ok { color: var(--ok); }

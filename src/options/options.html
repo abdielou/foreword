@@ -29,7 +29,9 @@
       <label for="model">Writing model (any OpenRouter model id)</label>
       <div class="row">
         <input id="model" type="text" list="modelList" autocomplete="off" spellcheck="false" placeholder="anthropic/claude-sonnet-4.5">
-        <button id="pickModel" class="ghost" type="button" title="Pick the newest Claude model that supports structured output">Newest Claude</button>
+        <select id="pickProvider" class="ghost" title="Fill in the newest model from a provider">
+          <option value="">Newest from…</option>
+        </select>
       </div>
       <datalist id="modelList"></datalist>
       <div id="modelStatus" class="status"></div>
