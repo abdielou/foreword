@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Author Lens</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="../../icons/icon48.png" alt="" width="20" height="20">
+    <strong>Author Lens</strong>
+    <button id="options" class="icon-btn" title="Options">⚙</button>
+  </header>
+
+  <div id="nokey" class="notice" hidden>
+    No API key yet. <a href="#" id="nokey-link">Add one in options</a> to start building profiles.
+  </div>
+
+  <section>
+    <label for="author">Author on this page</label>
+    <input id="author" type="text" placeholder="Not detected — type a name">
+    <div id="detail" class="muted small"></div>
+  </section>
+
+  <button id="go" class="primary">Open foreword</button>
+  <div id="status" class="muted small"></div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

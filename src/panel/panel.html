@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Author Lens</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="../../icons/icon48.png" alt="" width="18" height="18">
+      <span>Author Lens</span>
+    </div>
+    <div class="top-actions">
+      <button id="refresh" class="icon-btn" title="Research again (ignores cache)" hidden>↻</button>
+      <button id="options" class="icon-btn" title="Options">⚙</button>
+      <button id="close" class="icon-btn" title="Close">×</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="setup" class="state" hidden>
+      <h2>Who wrote this?</h2>
+      <form id="name-form">
+        <label for="name-input">Author</label>
+        <div class="row">
+          <input id="name-input" type="text" autocomplete="off" placeholder="Author name">
+          <button type="submit" class="primary">Look up</button>
+        </div>
+        <p class="muted" id="setup-hint"></p>
+      </form>
+    </section>
+
+    <section id="loading" class="state" hidden>
+      <div class="spinner"></div>
+      <h2 id="loading-title">Researching…</h2>
+      <p id="loading-text" class="muted"></p>
+      <ol id="search-log" class="log"></ol>
+      <p class="muted small">Usually 30–90 seconds. Results are cached.</p>
+      <button id="cancel" class="ghost">Cancel</button>
+    </section>
+
+    <section id="error" class="state" hidden>
+      <h2>Couldn't build a profile</h2>
+      <p id="error-text"></p>
+      <div class="row">
+        <button id="retry" class="primary">Try again</button>
+        <button id="error-options" class="ghost">Open options</button>
+      </div>
+    </section>
+
+    <article id="profile" hidden></article>
+  </main>
+
+  <footer class="foot">
+    <span id="foot-meta"></span>
+  </footer>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
