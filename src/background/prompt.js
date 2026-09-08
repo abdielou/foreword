@@ -92,7 +92,7 @@ export const SYSTEM_PROMPT = `You write the foreword a reader wishes every artic
 
 When two people talk face to face, each knows where the other is coming from and reads what is said in that light. A book carries a foreword and an author bio that do the same job. A news article or opinion piece usually offers only a name. Your job is to give the reader that missing context about the author so they can weigh the piece for themselves.
 
-You research one author and return a structured profile. Use the web search tool to find public sources; search several times with different angles (name plus outlet, name plus "journalist" or "columnist", name plus the article's topic, name plus "bio", name plus "wikipedia", name plus "twitter" or "x.com"). Read author pages, Wikipedia, Muck Rack, LinkedIn summaries, interviews, and the author's own posts. Then write the profile.
+You research one author and return a structured profile. The request includes web search results already gathered for this author: numbered sources with a title, URL and excerpt. Read them closely. You may add what you reliably know about a public figure, but anything that is not supported by a provided source must be marked inferred, and you must never invent a source.
 
 Principles
 
@@ -106,15 +106,48 @@ Principles
 
 5. Relevance to this article. The reader is about to read a specific piece. The most useful section connects the author's background to this subject: prior coverage, positions they have taken, stakes or conflicts, and expertise. Prefer this over generic biography.
 
-6. Cite everything. Every non-inferred claim points to sources by id. Include every source you used. Do not cite pages you did not see.
+6. Cite everything. Every non-inferred claim points to sources by their given id (s1, s2, ...). The sources list in your answer must contain only the provided sources you actually relied on, with their ids, titles and URLs copied exactly. Do not cite anything that was not provided.
 
-7. Images. Only list image URLs that appeared in fetched pages or search results (publisher author pages, Wikimedia Commons file pages, conference speaker pages). Never construct or guess a URL. If you find none, return an empty list; the profiles list will still give the reader somewhere to look.
+7. Images. Only list image URLs that literally appear in the provided source excerpts. Never construct or guess a URL. Usually this list will be empty; the profiles list still gives the reader somewhere to look.
 
 8. Say what you do not know. Thin public footprint, stale sources and contradictions go in caveats. An honest "little public information is available" is a valid profile.
 
 Write in plain, concrete prose. No hedging filler, no moralizing, no advice about what the reader should conclude.`;
 
-export function buildUserMessage({ author, publication, title, url, excerpt, publishedAt }) {
+function topicKeywords(title) {
+  const stop = new Set("a an the and or of to in on for with by from at as is are was were be this that these those it its into over under after before why how what when where who will can could should would new says said".split(" "));
+  return (title || "")
+    .replace(/[^\p{L}\p{N}\s'-]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stop.has(w.toLowerCase()))
+    .slice(0, 5)
+    .join(" ");
+}
+
+/** Templated search queries, most useful first. */
+export function buildQueries({ author, publication, title }) {
+  const q = `"${author}"`;
+  const topic = topicKeywords(title);
+  const list = [
+    publication ? `${q} ${publication}` : `${q} journalist`,
+    `${q} journalist OR columnist OR writer bio`,
+    `${q} wikipedia`,
+    topic ? `${q} ${topic}` : `${q} opinion`,
+    `${q} interview OR podcast`,
+    `${q} twitter OR x.com OR linkedin OR substack`,
+    `${q} think tank OR fellow OR foundation OR campaign`,
+    `${q} education OR university OR graduated`,
+  ];
+  return Array.from(new Set(list));
+}
+
+export function buildUserMessage({ author, publication, title, url, excerpt, publishedAt }, sources = []) {
+  const sourceBlock = sources.length
+    ? "\nGathered sources:\n" +
+      sources
+        .map((s) => `[${s.id}] ${s.title}\n${s.url}\n${s.content ? s.content.replace(/\s+/g, " ").trim() : "(no excerpt)"}`)
+        .join("\n\n")
+    : "\nGathered sources: none were found. Say so in caveats, keep claims minimal, and mark everything you add as inferred.";
   const lines = [
     `Author: ${author}`,
     publication ? `Publication: ${publication}` : null,
@@ -122,7 +155,8 @@ export function buildUserMessage({ author, publication, title, url, excerpt, pub
     url ? `Article URL: ${url}` : null,
     publishedAt ? `Published: ${publishedAt}` : null,
     excerpt ? `\nOpening of the article (for topic context and identity disambiguation):\n"""\n${excerpt}\n"""` : null,
-    "\nResearch this author and return the profile.",
+    sourceBlock,
+    "\nWrite the profile for this author.",
   ].filter(Boolean);
   return lines.join("\n");
 }

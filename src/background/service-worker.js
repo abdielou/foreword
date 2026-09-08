@@ -6,7 +6,7 @@ import {
   clearProfileCache,
   cacheStats,
 } from "../shared/storage.js";
-import { researchAuthor, testApiKey, ClaudeError } from "./claude.js";
+import { researchAuthor, testApiKey, listModels, ApiError } from "./openrouter.js";
 import { lookupWikipedia } from "./wikipedia.js";
 
 // ---------- per-tab detection state ----------
@@ -89,7 +89,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case "al:cache-stats":
         return { ok: true, ...(await cacheStats()) };
       case MSG.TEST_KEY:
-        return await testApiKey(msg.apiKey, msg.apiBaseUrl);
+        return await testApiKey(msg.apiKey);
+      case MSG.LIST_MODELS:
+        return { ok: true, models: await listModels() };
       default:
         return { ok: false, error: "unknown message" };
     }
@@ -145,8 +147,10 @@ chrome.runtime.onConnect.addListener((port) => {
         (e) => {
           if (e.kind === "search") {
             send({ type: "status", stage: "searching", text: `Searching: ${e.query}`, searches: e.searches });
-          } else if (e.kind === "continue") {
-            send({ type: "status", stage: "searching", text: "Continuing research…", searches: e.searches });
+          } else if (e.kind === "gathered") {
+            send({ type: "status", stage: "writing", text: `${e.count} sources found. Writing the profile…` });
+          } else if (e.kind === "writing" && e.chars) {
+            send({ type: "status", stage: "writing", text: `Writing the profile… (${Math.round(e.chars / 100) / 10}k characters)` });
           }
         },
         controller.signal
@@ -173,9 +177,9 @@ chrome.runtime.onConnect.addListener((port) => {
       } else {
         send({
           type: "error",
-          error: e instanceof ClaudeError ? e.message : `Unexpected error: ${e?.message || e}`,
-          retryable: e instanceof ClaudeError ? e.retryable : true,
-          noKey: e instanceof ClaudeError && e.status === 0,
+          error: e instanceof ApiError ? e.message : `Unexpected error: ${e?.message || e}`,
+          retryable: e instanceof ApiError ? e.retryable : true,
+          noKey: e instanceof ApiError && e.status === 0,
         });
       }
     } finally {

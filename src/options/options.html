@@ -16,42 +16,43 @@
     </header>
 
     <section>
-      <h2>Claude API</h2>
-      <p class="muted">Profiles are built by Claude with web search, using your own Anthropic API key. The key is stored in your browser's extension storage and sent only to api.anthropic.com. Get a key at <a href="https://platform.claude.com/" target="_blank" rel="noopener">platform.claude.com</a>.</p>
+      <h2>OpenRouter</h2>
+      <p class="muted">Profiles are built by a language model through <a href="https://openrouter.ai/" target="_blank" rel="noopener">OpenRouter</a>, using your own key. The key is stored in your browser's extension storage and sent only to openrouter.ai. Create a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
       <label for="apiKey">API key</label>
       <div class="row">
-        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-or-…">
         <button id="toggleKey" class="ghost" type="button">Show</button>
         <button id="testKey" class="ghost" type="button">Test</button>
       </div>
       <div id="keyStatus" class="status"></div>
 
+      <label for="model">Writing model (any OpenRouter model id)</label>
+      <div class="row">
+        <input id="model" type="text" list="modelList" autocomplete="off" spellcheck="false" placeholder="anthropic/claude-sonnet-4.5">
+        <button id="pickModel" class="ghost" type="button" title="Pick the newest Claude model that supports structured output">Newest Claude</button>
+      </div>
+      <datalist id="modelList"></datalist>
+      <div id="modelStatus" class="status"></div>
+
+      <label for="searchModel">Search relay model (cheap; only carries web search results)</label>
+      <input id="searchModel" type="text" list="modelList" autocomplete="off" spellcheck="false" placeholder="openai/gpt-4o-mini">
+      <div id="searchModelStatus" class="status"></div>
+
       <div class="grid">
         <div>
-          <label for="model">Model</label>
-          <select id="model"></select>
+          <label for="maxSearches">Web searches per profile</label>
+          <input id="maxSearches" type="number" min="1" max="12" step="1">
         </div>
         <div>
-          <label for="effort">Effort</label>
-          <select id="effort">
-            <option value="low">low — fastest, cheapest</option>
-            <option value="medium">medium</option>
-            <option value="high">high — default</option>
-            <option value="xhigh">xhigh — most thorough</option>
-          </select>
-        </div>
-        <div>
-          <label for="maxSearches">Max web searches per profile</label>
-          <input id="maxSearches" type="number" min="1" max="20" step="1">
+          <label for="resultsPerSearch">Results per search</label>
+          <input id="resultsPerSearch" type="number" min="1" max="10" step="1">
         </div>
         <div>
           <label for="cacheDays">Keep cached profiles for (days)</label>
           <input id="cacheDays" type="number" min="0" max="365" step="1">
         </div>
       </div>
-      <label for="apiBaseUrl">API base URL (advanced, leave blank for api.anthropic.com)</label>
-      <input id="apiBaseUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.anthropic.com">
-      <p class="muted small">A profile typically costs a few cents to a few tens of cents depending on model, effort and searches. Cached profiles are free to reopen.</p>
+      <p class="muted small">Each search costs about $0.004 per result on OpenRouter's web plugin (6 searches × 5 results ≈ $0.12), plus the writing model's tokens. Cached profiles are free to reopen.</p>
     </section>
 
     <section>

@@ -6,20 +6,21 @@ export const STORAGE_KEYS = {
   cachePrefix: "profile:",
 };
 
-export const MODELS = [
-  { id: "claude-opus-5", label: "Claude Opus 5 (recommended)" },
-  { id: "claude-sonnet-5", label: "Claude Sonnet 5 (faster, cheaper)" },
-  { id: "claude-fable-5-1", label: "Claude Fable 5.1 (most capable, most expensive)" },
+// Suggested OpenRouter model ids. The options page also loads the live list.
+export const SUGGESTED_MODELS = [
+  "anthropic/claude-sonnet-4.5",
+  "anthropic/claude-opus-4.1",
+  "openai/gpt-5",
+  "google/gemini-2.5-pro",
 ];
-
-export const EFFORTS = ["low", "medium", "high", "xhigh"];
+export const SUGGESTED_SEARCH_MODELS = ["openai/gpt-4o-mini", "google/gemini-2.5-flash", "anthropic/claude-3.5-haiku"];
 
 export const DEFAULT_SETTINGS = {
   apiKey: "",
-  apiBaseUrl: "",
-  model: "claude-opus-5",
-  effort: "high",
-  maxSearches: 8,
+  model: "anthropic/claude-sonnet-4.5",
+  searchModel: "openai/gpt-4o-mini",
+  maxSearches: 6,
+  resultsPerSearch: 5,
   cacheDays: 14,
   autoAnalyze: false,
   showBadge: true,
@@ -36,6 +37,7 @@ export const MSG = {
   CACHE_LOOKUP: "al:cache-lookup",   // panel/popup -> worker
   CLEAR_CACHE: "al:clear-cache",     // options -> worker
   TEST_KEY: "al:test-key",           // options -> worker
+  LIST_MODELS: "al:list-models",     // options -> worker
   PORT_NAME: "al:analysis",
 };
 
