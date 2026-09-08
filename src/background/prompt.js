@@ -59,7 +59,7 @@ export const PROFILE_SCHEMA = obj({
   }), "Think tanks, parties, advocacy groups, companies, funders, boards. Institutional ties that bear on perspective."),
   interests: arr(obj({ topic: str(""), note: nullableStr("How it shows up in their work.") }), "Recurring beats, themes, hobbies or causes the author returns to. At most eight."),
   socialPositions: obj({
-    overview: str("Positions the author has publicly taken on social and cultural questions, and the cultural milieu they write from. Report only what they have said or written publicly; do not speculate about private identity."),
+    overview: str("Positions the author has publicly taken on social, cultural and economic questions, and the milieu they write from. Their own posts are the best evidence here. Report only what they have said or written publicly; do not speculate about private identity."),
     indicators: arr(indicator, ""),
   }, ""),
   relevantToThisArticle: arr(obj({
@@ -75,9 +75,9 @@ export const PROFILE_SCHEMA = obj({
     approxDate: nullableStr("Year or date of the photo, if known."),
   }), "Recent, publicly posted photos of the author: author page headshots, Wikimedia Commons, conference pages, publisher bios. Newest first. Up to four. Empty if none found."),
   profiles: arr(obj({
-    label: str("Wikipedia, X, Bluesky, LinkedIn, Mastodon, Substack, personal site, author page at outlet, Muck Rack, etc."),
-    url: str(""),
-  }), "Public profile pages where a reader can see more, including the most recent photos and posts."),
+    label: str("One of: Author page, Personal site, Wikipedia, X, Bluesky, Mastodon, Threads, Instagram, LinkedIn, Substack, YouTube, Muck Rack, Other."),
+    url: str("Full URL exactly as it appeared in a source. Never guess a handle."),
+  }), "Every public profile URL that appeared in the sources: the outlet's author page, personal site, and social accounts (X, Bluesky, Mastodon, Threads, Instagram, LinkedIn, Substack). These are used to fetch recent photos, so include all that you saw."),
   sources: arr(obj({
     id: str("Short id like s1, s2 referenced by sourceIds above."),
     title: str(""),
@@ -110,7 +110,9 @@ Principles
 
 7. Images. Only list image URLs that literally appear in the provided source excerpts. Never construct or guess a URL. Usually this list will be empty; the profiles list still gives the reader somewhere to look.
 
-8. Say what you do not know. Thin public footprint, stale sources and contradictions go in caveats. An honest "little public information is available" is a valid profile.
+8. Social posts. A person's own posts are usually more candid than a bio, and the best evidence for social, cultural and economic positions. When social accounts are provided, first check that each one belongs to this author (display name, bio, outlet, links, subject matter); if you are not confident, say so in caveats and treat its posts as inferred at most. Then characterize patterns across many posts rather than single offhand remarks, keep jokes, sarcasm and shared links distinct from stated positions, and cite the specific posts by id.
+
+9. Say what you do not know. Thin public footprint, stale sources and contradictions go in caveats. An honest "little public information is available" is a valid profile.
 
 Write in plain, concrete prose. No hedging filler, no moralizing, no advice about what the reader should conclude.`;
 
@@ -134,14 +136,33 @@ export function buildQueries({ author, publication, title }) {
     `${q} wikipedia`,
     topic ? `${q} ${topic}` : `${q} opinion`,
     `${q} interview OR podcast`,
-    `${q} twitter OR x.com OR linkedin OR substack`,
+    `${q} x.com OR twitter`,
+    `${q} bsky.app OR mastodon OR threads.net OR instagram`,
+    `${q} linkedin OR substack OR muckrack`,
     `${q} think tank OR fellow OR foundation OR campaign`,
     `${q} education OR university OR graduated`,
   ];
   return Array.from(new Set(list));
 }
 
-export function buildUserMessage({ author, publication, title, url, excerpt, publishedAt }, sources = []) {
+function accountBlock(accounts) {
+  if (!accounts?.length) return null;
+  const label = { x: "X", bluesky: "Bluesky", mastodon: "Mastodon" };
+  return (
+    "\nSocial accounts found (confirm each belongs to this author before relying on it):\n" +
+    accounts
+      .map((a, i) => {
+        const bits = [`[account ${i + 1}] ${label[a.kind] || a.kind} @${a.handle} — ${a.url}`];
+        if (a.displayName) bits.push(`name: ${a.displayName}`);
+        if (a.bio) bits.push(`bio: ${a.bio.replace(/\s+/g, " ").trim()}`);
+        if (a.followers != null) bits.push(`followers: ${a.followers}`);
+        return bits.join("\n  ");
+      })
+      .join("\n")
+  );
+}
+
+export function buildUserMessage({ author, publication, title, url, excerpt, publishedAt }, sources = [], accounts = []) {
   const sourceBlock = sources.length
     ? "\nGathered sources:\n" +
       sources
@@ -156,6 +177,7 @@ export function buildUserMessage({ author, publication, title, url, excerpt, pub
     publishedAt ? `Published: ${publishedAt}` : null,
     excerpt ? `\nOpening of the article (for topic context and identity disambiguation):\n"""\n${excerpt}\n"""` : null,
     sourceBlock,
+    accountBlock(accounts),
     "\nWrite the profile for this author.",
   ].filter(Boolean);
   return lines.join("\n");

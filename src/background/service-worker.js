@@ -8,6 +8,7 @@ import {
 } from "../shared/storage.js";
 import { researchAuthor, testApiKey, listModels, ApiError } from "./openrouter.js";
 import { lookupWikipedia } from "./wikipedia.js";
+import { collectImages, fetchSocialPosts } from "./images.js";
 
 // ---------- per-tab detection state ----------
 // Kept in session storage so it survives worker restarts.
@@ -148,12 +149,17 @@ chrome.runtime.onConnect.addListener((port) => {
           if (e.kind === "search") {
             send({ type: "status", stage: "searching", text: `Searching: ${e.query}`, searches: e.searches });
           } else if (e.kind === "gathered") {
-            send({ type: "status", stage: "writing", text: `${e.count} sources found. Writing the profile…` });
+            send({ type: "status", stage: "searching", text: `${e.count} sources found.` });
+          } else if (e.kind === "social") {
+            send({ type: "status", stage: "searching", text: "Reading recent social posts…" });
+          } else if (e.kind === "social-done") {
+            send({ type: "status", stage: "writing", text: e.accounts ? `${e.posts} recent posts from ${e.accounts} account${e.accounts === 1 ? "" : "s"}. Writing the profile…` : "No open social accounts found. Writing the profile…" });
           } else if (e.kind === "writing" && e.chars) {
             send({ type: "status", stage: "writing", text: `Writing the profile… (${Math.round(e.chars / 100) / 10}k characters)` });
           }
         },
-        controller.signal
+        controller.signal,
+        fetchSocialPosts
       );
 
       send({ type: "status", stage: "enriching", text: "Looking up Wikipedia…" });
@@ -169,7 +175,25 @@ chrome.runtime.onConnect.addListener((port) => {
         wikipedia = null;
       }
 
-      const entry = await setCachedProfile(author, publication, profile, { ...meta, wikipedia, article: msg.article });
+      send({ type: "status", stage: "enriching", text: "Collecting recent photos…" });
+      let images = [];
+      let handles = [];
+      try {
+        const profiles = [...(profile.profiles || [])];
+        for (const a of meta.accounts || []) profiles.push({ label: a.kind, url: a.url });
+        if (wikipedia?.url) profiles.push({ label: "Wikipedia", url: wikipedia.url });
+        const r = await collectImages({
+          name: profile.name || author,
+          profiles,
+          sourceUrls: (profile.sources || []).map((s) => s.url),
+        });
+        images = r.images;
+        handles = r.handles;
+      } catch {
+        images = [];
+      }
+
+      const entry = await setCachedProfile(author, publication, profile, { ...meta, wikipedia, images, handles, article: msg.article });
       send({ type: "result", entry, fromCache: false });
     } catch (e) {
       if (e?.name === "AbortError") {

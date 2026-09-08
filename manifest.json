@@ -5,11 +5,7 @@
   "description": "A foreword for every article: who the author is, where they come from, and what may shape their point of view.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "activeTab", "tabs", "alarms"],
-  "host_permissions": [
-    "https://openrouter.ai/*",
-    "https://en.wikipedia.org/*",
-    "https://www.wikidata.org/*"
-  ],
+  "host_permissions": ["https://*/*"],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"

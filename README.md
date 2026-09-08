@@ -18,9 +18,11 @@ Every observation is labeled by its basis (self-described, public record, report
 
 1. A content script reads the page's byline (JSON-LD, meta tags, then common byline markup), the publication, the headline, and the opening paragraphs.
 2. The background service worker runs several templated web searches through OpenRouter's web plugin (name plus outlet, bio, Wikipedia, the article's topic, interviews, social profiles, affiliations, education) on a cheap relay model, collecting every result as a numbered source.
-3. It then asks the writing model of your choice, through OpenRouter, to read the article context and those sources and return a structured profile. The article's opening text is included so the model can disambiguate common names and connect the author's record to the topic. Only provided sources can be cited.
-4. Wikipedia is checked for a photo and description when the author has an article.
-5. Profiles are cached locally (14 days by default), so reopening an article is free.
+3. If those results include the author's X, Bluesky or Mastodon profile, their bio and recent public posts are fetched directly (no key) and added as citable sources. Posts are the most candid evidence of social, cultural and economic positions; the writing model is told to confirm each account really belongs to the author before relying on it.
+4. It then asks the writing model of your choice, through OpenRouter, to read the article context and those sources and return a structured profile. The article's opening text is included so the model can disambiguate common names and connect the author's record to the topic. Only provided sources can be cited.
+5. Wikipedia is checked for a photo and description when the author has an article.
+6. Recent photos are collected from the author's public profiles found during research: Bluesky and Mastodon (public APIs, with recent image posts and their dates), X (the public syndication timeline behind embedded timelines, with an avatar fallback), Wikimedia Commons (dated photos), and the `og:image` of author pages and personal sites. They are merged, deduplicated and shown newest first.
+7. Profiles are cached locally (14 days by default), so reopening an article is free.
 
 The panel is an extension page rendered in an iframe, so site styles and content security policies cannot interfere with it.
 
@@ -30,7 +32,7 @@ The panel is an extension page rendered in an iframe, so site styles and content
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the repository folder.
 3. The options page opens on first install. Paste an OpenRouter key from [openrouter.ai/keys](https://openrouter.ai/keys), pick a writing model (any OpenRouter model id; the page loads the live list and the "Newest from…" menu fills in the latest model from any provider), click **Test**, then **Save**.
 
-No build step is needed. The extension is plain HTML, CSS, and JavaScript.
+No build step is needed. The extension is plain HTML, CSS, and JavaScript. The options page header shows the loaded build: version, commit hash, branch, and commit date, read from the checkout's `.git` folder. After a `git pull`, click the reload icon on the extension's card in `chrome://extensions` and check that the hash matches `git rev-parse --short HEAD`.
 
 ## Use
 
@@ -41,9 +43,9 @@ No build step is needed. The extension is plain HTML, CSS, and JavaScript.
 
 ## Cost and privacy
 
-- Your OpenRouter key lives in Chrome's extension storage and is sent only to `openrouter.ai`.
+- Your OpenRouter key lives in Chrome's extension storage and is sent only to `openrouter.ai`. The photo collector fetches public profile pages and APIs directly, without any key.
 - Each new profile is a handful of small search requests plus one writing request. OpenRouter's web plugin charges about $0.004 per search result, so the default six searches of five results cost around $0.12, plus the writing model's tokens. Cached profiles cost nothing to reopen.
-- The extension sends the author's name, the publication, the article title and URL, and the article's first paragraphs to OpenRouter. Nothing else leaves the browser.
+- The extension sends the author's name, the publication, the article title and URL, the article's first paragraphs, the search results, and the author's recent public posts to OpenRouter. Nothing else leaves the browser.
 
 ## Layout
 
@@ -53,6 +55,7 @@ src/background/service-worker.js   message routing, per-tab state, caching, keep
 src/background/openrouter.js       OpenRouter client: gather searches, then structured synthesis
 src/background/prompt.js           system prompt and profile JSON schema
 src/background/wikipedia.js        photo and description lookup
+src/background/images.js           recent posts and photos from Bluesky, Mastodon, X, Commons, author pages
 src/content/content.js             byline detection, badge, panel iframe
 src/panel/                         the profile panel (extension page)
 src/popup/                         toolbar popup
@@ -63,7 +66,7 @@ scripts/make-icons.mjs             regenerates icons/ (node scripts/make-icons.m
 
 ## Known limits
 
-- "Most recent photos" depends on Wikipedia and on image URLs that happen to appear in search excerpts, which is rare. There is no image search API behind it. The profile links (author page, X, LinkedIn, Wikipedia) are the reliable place for the newest pictures.
+- Recent photos depend on the author having public Bluesky, Mastodon or X accounts that the search turned up, or a Commons or author page. Instagram, Threads, LinkedIn and Facebook are closed without login, so those appear only as links. The X endpoint is unofficial and may stop working; the avatar fallback goes through unavatar.io.
 - Models that lack structured-output support on OpenRouter get a prompt-only JSON request instead; most current models handle it, smaller ones may not.
 - Byline detection is heuristic. Sites that render bylines late or use unusual markup may need the name typed in the popup.
 - A model researching the open web can still confuse people who share a name. The panel flags identity confidence and lists caveats; follow the sources for anything that matters.

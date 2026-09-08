@@ -30,3 +30,4 @@ select.ghost { width: auto; }
 .status.ok { color: var(--ok); }
 .status.bad { color: var(--bad); }
 .about p { color: var(--muted); }
+.build { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; margin-top: 4px; }

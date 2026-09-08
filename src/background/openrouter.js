@@ -238,10 +238,10 @@ function responseFormat() {
   };
 }
 
-async function synthesize(settings, article, sources, onProgress, signal) {
+async function synthesize(settings, article, sources, accounts, onProgress, signal) {
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: buildUserMessage(article, sources) },
+    { role: "user", content: buildUserMessage(article, sources, accounts) },
   ];
   const base = {
     model: settings.model,
@@ -296,7 +296,12 @@ async function synthesize(settings, article, sources, onProgress, signal) {
 }
 
 // ------------------------------------------------------------------ public
-export async function researchAuthor(settings, article, onProgress, signal) {
+/**
+ * @param {(urls: string[]) => Promise<{accounts: object[], posts: object[]}>} [fetchSocial]
+ *   Optional: given the gathered source URLs, returns social accounts and recent posts,
+ *   which become citable sources for the writing model.
+ */
+export async function researchAuthor(settings, article, onProgress, signal, fetchSocial) {
   if (!settings.apiKey) {
     throw new ApiError("No OpenRouter API key set. Open Author Lens options to add one.", { status: 0 });
   }
@@ -307,7 +312,31 @@ export async function researchAuthor(settings, article, onProgress, signal) {
   const { sources, queries, failures } = await gatherSources(settings, article, onProgress, signal);
   onProgress?.({ kind: "gathered", count: sources.length, searches: queries.length });
 
-  const { profile, usage, model, structured } = await synthesize(settings, article, sources, onProgress, signal);
+  // Recent posts from social accounts that surfaced in the search results.
+  let accounts = [];
+  const label = { x: "X", bluesky: "Bluesky", mastodon: "Mastodon" };
+  if (fetchSocial) {
+    try {
+      onProgress?.({ kind: "social" });
+      const r = await fetchSocial(sources.map((s) => s.url));
+      accounts = r?.accounts || [];
+      for (const post of (r?.posts || []).slice(0, 80)) {
+        const a = accounts[post.account] || {};
+        sources.push({
+          id: `s${sources.length + 1}`,
+          title: `${label[a.kind] || "Post"} post by @${a.handle || "?"}${post.date ? ` (${post.date.slice(0, 10)})` : ""}`,
+          url: post.url,
+          content: post.text,
+          queries: [],
+        });
+      }
+      onProgress?.({ kind: "social-done", accounts: accounts.length, posts: (r?.posts || []).length });
+    } catch {
+      accounts = [];
+    }
+  }
+
+  const { profile, usage, model, structured } = await synthesize(settings, article, sources, accounts, onProgress, signal);
 
   // Keep the model honest: only sources we actually provided can be cited.
   const known = new Map(sources.map((s) => [s.id, s]));
@@ -322,6 +351,7 @@ export async function researchAuthor(settings, article, onProgress, signal) {
       searches: queries.length,
       searchFailures: failures,
       sourceCount: sources.length,
+      accounts,
       structuredOutput: structured,
       usage: usage || null,
       generatedAt: Date.now(),

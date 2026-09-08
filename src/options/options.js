@@ -1,5 +1,6 @@
 import { MSG, SUGGESTED_MODELS, SUGGESTED_SEARCH_MODELS } from "../shared/constants.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
+import { getBuildInfo, formatBuildInfo } from "../shared/version.js";
 
 const $ = (id) => document.getElementById(id);
 let models = [];
@@ -146,3 +147,11 @@ $("clearCache").addEventListener("click", async () => {
 });
 
 load();
+getBuildInfo()
+  .then((info) => {
+    $("build").textContent = formatBuildInfo(info);
+    if (info.hash) $("build").title = `commit ${info.hash}`;
+  })
+  .catch(() => {
+    $("build").textContent = `v${chrome.runtime.getManifest().version}`;
+  });

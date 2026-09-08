@@ -269,7 +269,7 @@ function render(entry, fromCache) {
   // social positions
   const soc = p.socialPositions || {};
   root.append(
-    section("Social & cultural positions", soc.indicators?.length ?? null, [
+    section("Social, cultural & economic positions", soc.indicators?.length ?? null, [
       soc.overview ? el("p", { text: soc.overview }) : null,
       indicatorList(soc.indicators, sourceMap),
     ], false)
@@ -290,27 +290,45 @@ function render(entry, fromCache) {
   const qs = p.readingQuestions || [];
   root.append(section("Questions to keep in mind", qs.length, qs.length ? el("ol", { class: "questions" }, ...qs.map((q) => el("li", { text: q }))) : null, true));
 
-  // photos
+  // photos: collected from social profiles and open sources, newest first
   const photos = [];
-  if (wiki?.image || wiki?.thumbnail) {
-    photos.push({ url: wiki.image || wiki.thumbnail, sourceUrl: wiki.url, caption: "Wikipedia" });
-  }
-  for (const im of p.images || []) {
+  for (const im of meta.images || []) {
     const u = safeUrl(im.url);
     if (u && !photos.some((x) => x.url === u)) photos.push({ ...im, url: u });
   }
+  if (wiki?.image || wiki?.thumbnail) {
+    const u = wiki.image || wiki.thumbnail;
+    if (!photos.some((x) => x.url === u)) photos.push({ url: u, sourceUrl: wiki.url, source: "Wikipedia", date: null, kind: "photo", caption: "Wikipedia" });
+  }
+  for (const im of p.images || []) {
+    const u = safeUrl(im.url);
+    if (u && !photos.some((x) => x.url === u)) photos.push({ ...im, url: u, source: im.caption || "Source page", date: im.approxDate || null, kind: "photo" });
+  }
   if (photos.length) {
+    const fmtDate = (d) => {
+      if (!d) return null;
+      const t = new Date(d);
+      if (Number.isNaN(t.getTime())) return String(d);
+      return t.toLocaleDateString(undefined, { year: "numeric", month: "short" });
+    };
     const grid = el(
       "div",
       { class: "photos" },
-      ...photos.slice(0, 6).map((ph) => {
+      ...photos.map((ph) => {
         const im = el("img", { src: ph.url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-        const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener" }, im, el("div", { class: "cap", text: [ph.caption, ph.approxDate].filter(Boolean).join(" · ") }));
+        const label = [ph.source, fmtDate(ph.date)].filter(Boolean).join(" · ");
+        const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener", title: ph.caption || "" }, im, el("div", { class: "cap", text: label }));
         im.addEventListener("error", () => a.remove());
         return a;
       })
     );
-    root.append(section("Recent photos", photos.length, [grid, el("p", { class: "muted small", text: "Photos come from public pages found during research. Follow a profile link below for the newest ones." })], true));
+    const handles = (meta.handles || []).map((h) => h.kind === "mastodon" ? `@${h.handle}@${h.instance}` : `${h.kind === "x" ? "X" : "Bluesky"} @${h.handle}`);
+    root.append(
+      section("Recent photos", photos.length, [
+        grid,
+        el("p", { class: "muted small", text: handles.length ? `From ${handles.join(", ")} and open sources, newest first.` : "From the author's public pages and open sources, newest first. Add a social profile link to see their latest posts." }),
+      ], true)
+    );
   }
 
   // profiles
