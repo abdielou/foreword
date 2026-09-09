@@ -4,22 +4,25 @@ A Chrome extension that gives every article a foreword.
 
 When two people talk face to face, each knows where the other is coming from and reads what is said in that light. A book carries a foreword and an author bio that do the same job. A news article or opinion piece usually offers only a name. Author Lens fills in that missing context, from public sources, so you can weigh the piece for yourself.
 
-Open an article, click the "Who is …?" badge, and a side panel shows:
+Open an article, click the "Who is …?" badge, and a side panel shows a one-glance dashboard:
 
-- **A foreword**: a few plain paragraphs on who is speaking, the vantage point they write from, and what a fair-minded reader should keep in mind.
-- **Relevant to this article**: prior coverage, positions taken, stakes or conflicts, and expertise that bear on this specific piece.
-- **Politics & worldview**, **affiliations & funding**, **social & cultural positions**, **background** (career, education), and **interests**.
-- **Questions to keep in mind** while reading, tailored to the author and topic.
-- **Recent photos** and links to public profiles, plus every source used.
+- **Bottom line**: one or two sentences on who this is and the angle they usually bring.
+- **Leaning**: political, social and economic position on five-step meters, each with a confidence level, the single strongest reason, and source links. Thin evidence shows as "not enough evidence" rather than a guess.
+- **Style**: reporting versus opinion, and whether the author reads events through one lens or engages many perspectives, judged from previous pieces and posts.
+- **Watch for**: three short things to keep in mind for this specific article.
+- **Evidence**: the strongest quotes from the author's own posts and interviews, plus summaries of past articles and public records, each linked.
+- **Previous pieces**: recent work by the author, tagged reporting, analysis or opinion.
+- **Photos**: a strip of recent images from social profiles, author pages, Wikimedia and image search.
+- **More**: career, education, affiliations, profile links and every source, folded away.
 
-Every observation is labeled by its basis (self-described, public record, reported, or inferred) and linked to a source. The profile covers only public and professional information. It does not speculate about private identity, and it is written as a fair introduction rather than a case for the prosecution. Treat it as a lens, not a verdict.
+The author's own social posts weigh most for leaning, and their past articles weigh most for style. Everything covers only public and professional information, and every judgment carries its evidence. Treat it as a lens, not a verdict.
 
 ## How it works
 
 1. A content script reads the page's byline (JSON-LD, meta tags, then common byline markup), the publication, the headline, and the opening paragraphs.
-2. The background service worker runs several templated web searches through OpenRouter's web plugin (name plus outlet, bio, Wikipedia, the article's topic, interviews, social profiles, affiliations, education) on a cheap relay model, collecting every result as a numbered source.
+2. The background service worker runs several templated web searches through OpenRouter's web plugin (name plus outlet, the author's other pieces on the same site, social profiles, opinion columns, bio, the article's topic, Wikipedia, interviews, affiliations, education) on a cheap relay model, collecting every result as a numbered source.
 3. If those results include the author's X, Bluesky or Mastodon profile, their bio and recent public posts are fetched directly (no key) and added as citable sources. Posts are the most candid evidence of social, cultural and economic positions; the writing model is told to confirm each account really belongs to the author before relying on it.
-4. It then asks the writing model of your choice, through OpenRouter, to read the article context and those sources and return a structured profile. The article's opening text is included so the model can disambiguate common names and connect the author's record to the topic. Only provided sources can be cited.
+4. It then asks the writing model of your choice, through OpenRouter, to read the article context and those sources and return the dashboard as structured JSON: a position, confidence, reason and sources for each axis, three watch-fors, quoted evidence, and previous pieces. The article's opening text is included so the model can disambiguate common names and connect the author's record to the topic. Only provided sources can be cited.
 5. Wikipedia is checked for a photo and description when the author has an article.
 6. Photos are collected from every angle at once: the byline photo and author-page link on the article itself, Bluesky and Mastodon public APIs (avatars and recent image posts with dates), X's public syndication timeline, Wikimedia Commons and Wikidata, image search on DuckDuckGo and Bing for the author's name and publication, and a scrape of every page found during research. Page images are scored on filename, alt text and surrounding markup so headshots rank above logos, icons and stock art. Results are deduplicated across sizes and shown newest and most likely first.
 7. Profiles are cached locally (14 days by default), so reopening an article is free.
@@ -46,7 +49,7 @@ No build step is needed. The extension is plain HTML, CSS, and JavaScript. The o
 ## Cost and privacy
 
 - Your OpenRouter key lives in Chrome's extension storage and is sent only to `openrouter.ai`. The photo collector fetches public profile pages and APIs directly, without any key.
-- Each new profile is a handful of small search requests plus one writing request. OpenRouter's web plugin charges about $0.004 per search result, so the default six searches of five results cost around $0.12, plus the writing model's tokens. Cached profiles cost nothing to reopen.
+- Each new profile is a handful of small search requests plus one writing request. OpenRouter's web plugin charges about $0.004 per search result, so the default eight searches of five results cost around $0.16, plus the writing model's tokens. Cached profiles cost nothing to reopen.
 - The extension sends the author's name, the publication, the article title and URL, the article's first paragraphs, the search results, and the author's recent public posts to OpenRouter. Nothing else leaves the browser.
 
 ## Layout

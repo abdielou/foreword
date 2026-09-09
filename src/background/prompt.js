@@ -1,10 +1,8 @@
-// System prompt and output schema for the author profile.
+// System prompt and output schema for the author dashboard.
 //
 // The schema is sent as a structured-output format, so the model's final
 // answer is guaranteed to parse. Every object sets additionalProperties:false
 // and lists every key as required (nullable where optional), as the API needs.
-
-const BASIS = ["self-described", "public-record", "reported", "inferred"];
 
 function str(description) {
   return { type: "string", description };
@@ -12,109 +10,119 @@ function str(description) {
 function nullableStr(description) {
   return { anyOf: [{ type: "string" }, { type: "null" }], description };
 }
+function en(values, description) {
+  return { type: "string", enum: values, description };
+}
 function obj(properties, description) {
-  return {
-    type: "object",
-    description,
-    properties,
-    required: Object.keys(properties),
-    additionalProperties: false,
-  };
+  return { type: "object", description, properties, required: Object.keys(properties), additionalProperties: false };
 }
 function arr(items, description) {
   return { type: "array", items, description };
 }
 
-const indicator = obj(
-  {
-    claim: str("One specific, checkable observation. Prefer what the person did or said over labels."),
-    basis: { type: "string", enum: BASIS, description: "self-described: the author said it about themselves. public-record: donations, registrations, court or corporate filings. reported: a third party (news, bio page) says it. inferred: your reading of their body of work; use sparingly and say so." },
-    sourceIds: arr({ type: "string" }, "Ids from the sources list that support this claim. Required for every basis except inferred."),
-  },
-  "A single evidence-backed observation."
-);
+const CONFIDENCE = ["high", "medium", "low", "none"];
+const ids = arr({ type: "string" }, "Ids of sources (s1, s2, ...) that support this. Empty only when confidence is none.");
+
+function axis(values, description) {
+  return obj(
+    {
+      position: en(values, description),
+      confidence: en(CONFIDENCE, "none means there is not enough public evidence to place them; then position must be 'unclear'."),
+      why: str("At most 20 words. The single strongest reason for this placement, concrete (a post, an affiliation, a pattern across articles)."),
+      sourceIds: ids,
+    },
+    ""
+  );
+}
+
+export const POLITICAL = ["left", "center-left", "center", "center-right", "right", "unclear"];
+export const SOCIAL = ["progressive", "leans-progressive", "mixed", "leans-traditional", "traditional", "unclear"];
+export const ECONOMIC = ["interventionist", "leans-interventionist", "mixed", "leans-market", "free-market", "unclear"];
+export const OPINION = ["reporting", "mostly-reporting", "mixed", "mostly-opinion", "advocacy", "unclear"];
+export const LENS = ["many-perspectives", "mostly-balanced", "mixed", "mostly-one-lens", "single-lens", "unclear"];
 
 export const PROFILE_SCHEMA = obj({
   name: str("Canonical full name of the author."),
-  identityConfidence: { type: "string", enum: ["high", "medium", "low"], description: "How sure you are that the sources describe the same person who wrote this article." },
-  identityNote: nullableStr("If confidence is not high, explain the ambiguity (common name, several people, sparse footprint)."),
-  oneLiner: str("A single sentence a friend would use to introduce this person: role, outlet, beat, and what they are known for."),
-  foreword: str("Two to four short paragraphs, plain prose, written for a reader who is about to read this article. Cover: who is speaking, the vantage point they write from, and what a fair-minded reader should keep in mind. Even-handed; expertise counts as much as leanings."),
-  currentRole: nullableStr("Current job title and employer, if known."),
+  identityConfidence: en(["high", "medium", "low"], "How sure you are that the sources describe the person who wrote this article."),
+  identityNote: nullableStr("Only when identity confidence is not high: the ambiguity in one sentence."),
+  currentRole: nullableStr("Job title and outlet, e.g. 'Opinion columnist, The Example Times'."),
+  bottomLine: str("One or two sentences, at most 40 words, that a friend would say before handing you this article: who this is and the angle they usually bring. Plain and specific."),
+
+  leanings: obj({
+    political: axis(POLITICAL, "Overall political orientation as expressed publicly, in the terms of the author's own country."),
+    social: axis(SOCIAL, "Cultural and social questions: immigration, gender and sexuality, religion in public life, crime and policing, identity, tradition."),
+    economic: axis(ECONOMIC, "Role of the state in the economy: taxes, regulation, redistribution, unions, trade, markets."),
+  }, "Where the author sits. Weigh their own posts and their body of work above labels others give them."),
+
+  style: obj({
+    opinion: axis(OPINION, "How much of their output is opinion or advocacy rather than reporting, and whether they present opinions as settled fact."),
+    lens: axis(LENS, "Whether they read events through one consistent ideological frame, or engage and fairly state views they disagree with."),
+  }, "How they work, judged from previous articles and posts."),
+
+  watchFor: arr(str("At most 18 words. One concrete thing to keep in mind while reading this specific article, tied to this author's record or stakes."), "Exactly three items when evidence allows; fewer if not. Neutral wording."),
+
+  evidence: arr(obj({
+    kind: en(["post", "article", "bio", "record", "interview", "other"], ""),
+    axis: en(["political", "social", "economic", "opinion", "lens", "identity", "other"], "Which judgment this supports."),
+    text: str("A short verbatim quote (under 200 characters) for posts and interviews; a one-line summary for articles and records."),
+    date: nullableStr("ISO date or year if known."),
+    sourceId: str("The source id this comes from."),
+  }), "The six to ten strongest pieces of evidence behind the placements above, most telling first. Prefer the author's own words."),
+
+  recentWork: arr(obj({
+    title: str(""),
+    url: str("Exactly as given in a source."),
+    date: nullableStr(""),
+    kind: en(["reporting", "analysis", "opinion", "unclear"], ""),
+    note: nullableStr("At most 15 words: the take or framing, if any."),
+  }), "Up to six previous pieces by this author found in the sources, newest first."),
+
   background: obj({
-    education: arr(obj({ institution: str("School or university."), detail: nullableStr("Degree, field, years, if known."), sourceIds: arr({ type: "string" }, "") }), ""),
-    career: arr(obj({ organization: str(""), role: str(""), years: nullableStr("e.g. '2015-2019' or 'since 2021'"), sourceIds: arr({ type: "string" }, "") }), "Most relevant positions, newest first, at most eight."),
-    location: nullableStr("City or region they are publicly based in. Never a street address."),
-  }, ""),
-  politics: obj({
-    overview: str("Two or three sentences on political orientation and worldview as evidenced publicly. If there is no evidence, say so plainly instead of guessing."),
-    leaning: nullableStr("A short, hedged label such as 'center-left, per outlet and self-description' or null if not supportable."),
-    indicators: arr(indicator, "Concrete evidence: outlets written for, party or campaign work, public donations, endorsements, self-descriptions, positions taken repeatedly."),
+    career: arr(obj({ organization: str(""), role: str(""), years: nullableStr(""), sourceIds: ids }), "At most five, newest first."),
+    education: arr(obj({ institution: str(""), detail: nullableStr(""), sourceIds: ids }), "At most three."),
+    location: nullableStr("City or region only. Never a street address."),
   }, ""),
   affiliations: arr(obj({
     organization: str(""),
-    relationship: str("Employee, fellow, board member, donor, funded by, member, spokesperson, etc."),
-    whyItMatters: nullableStr("Only if the relationship plausibly shapes how they cover this article's subject."),
-    sourceIds: arr({ type: "string" }, ""),
-  }), "Think tanks, parties, advocacy groups, companies, funders, boards. Institutional ties that bear on perspective."),
-  interests: arr(obj({ topic: str(""), note: nullableStr("How it shows up in their work.") }), "Recurring beats, themes, hobbies or causes the author returns to. At most eight."),
-  socialPositions: obj({
-    overview: str("Positions the author has publicly taken on social, cultural and economic questions, and the milieu they write from. Their own posts are the best evidence here. Report only what they have said or written publicly; do not speculate about private identity."),
-    indicators: arr(indicator, ""),
-  }, ""),
-  relevantToThisArticle: arr(obj({
-    point: str("A connection between the author's background and the subject of this specific article: prior coverage, a stake, a stated position, direct experience, or expertise."),
-    kind: { type: "string", enum: ["expertise", "prior-position", "potential-conflict", "personal-stake", "prior-coverage"] },
-    sourceIds: arr({ type: "string" }, ""),
-  }), "The most useful section. Three to six items."),
-  readingQuestions: arr({ type: "string" }, "Three to five short questions a reader could keep in mind while reading this article, tailored to this author and topic. Neutral in tone."),
-  images: arr(obj({
-    url: str("Direct URL to an image file (ends in .jpg/.jpeg/.png/.webp or is a Wikimedia upload URL). Must be a URL you actually saw in a fetched page or search result. Never invent one."),
-    sourceUrl: str("Page where the image appears."),
-    caption: nullableStr("Where the photo is from and roughly when, if known."),
-    approxDate: nullableStr("Year or date of the photo, if known."),
-  }), "Recent, publicly posted photos of the author: author page headshots, Wikimedia Commons, conference pages, publisher bios. Newest first. Up to four. Empty if none found."),
+    relationship: str("employee, fellow, board member, donor, funded by, member, spokesperson, etc."),
+    sourceIds: ids,
+  }), "Institutional ties that bear on perspective: parties, think tanks, advocacy groups, funders, boards. At most six."),
+  interests: arr(str("Two to five words each."), "Recurring beats and causes. At most six."),
   profiles: arr(obj({
-    label: str("One of: Author page, Personal site, Wikipedia, X, Bluesky, Mastodon, Threads, Instagram, LinkedIn, Substack, YouTube, Muck Rack, Other."),
+    label: en(["Author page", "Personal site", "Wikipedia", "X", "Bluesky", "Mastodon", "Threads", "Instagram", "LinkedIn", "Substack", "YouTube", "Muck Rack", "Other"], ""),
     url: str("Full URL exactly as it appeared in a source. Never guess a handle."),
-  }), "Every public profile URL that appeared in the sources: the outlet's author page, personal site, and social accounts (X, Bluesky, Mastodon, Threads, Instagram, LinkedIn, Substack). These are used to fetch recent photos, so include all that you saw."),
+  }), "Every public profile URL that appeared in the sources."),
   sources: arr(obj({
-    id: str("Short id like s1, s2 referenced by sourceIds above."),
+    id: str("Id as given (s1, s2, ...)."),
     title: str(""),
     url: str(""),
     publisher: nullableStr(""),
-    date: nullableStr("Publication date if visible."),
-  }), "Every source you relied on."),
-  caveats: arr({ type: "string" }, "Limits of this profile: thin footprint, possible mix-ups, outdated info, anything a reader should discount."),
+    date: nullableStr(""),
+  }), "Only the provided sources you relied on, copied exactly."),
+  caveats: arr(str("One sentence each."), "Limits: thin footprint, possible mix-ups, unverified accounts, stale sources. At most four."),
 });
 
-export const SYSTEM_PROMPT = `You write the foreword a reader wishes every article came with.
+export const SYSTEM_PROMPT = `You build a one-glance dashboard about the author of an article, so a reader can weigh the piece before reading it.
 
-When two people talk face to face, each knows where the other is coming from and reads what is said in that light. A book carries a foreword and an author bio that do the same job. A news article or opinion piece usually offers only a name. Your job is to give the reader that missing context about the author so they can weigh the piece for themselves.
+The reader does not want an essay. They want to know where the author stands politically, socially and economically, how they work (opinion or reporting, one lens or many), and what to watch for in this particular article. Every judgment must carry its evidence and an honest confidence.
 
-You research one author and return a structured profile. The request includes web search results already gathered for this author: numbered sources with a title, URL and excerpt. Read them closely. You may add what you reliably know about a public figure, but anything that is not supported by a provided source must be marked inferred, and you must never invent a source.
+You get: the article's context, web search results gathered for this author (numbered sources with a title, URL and excerpt), and, when found, the author's social accounts with their bios and recent posts. Read all of it. You may add what you reliably know about a public figure, but anything not supported by a provided source counts as low confidence, and you must never invent a source.
 
 Principles
 
-1. Identity first. Names collide. Use the outlet, the beat, the article's subject and any bio line to confirm you have the right person. If two candidates remain, say so, set identityConfidence to medium or low, and describe the better-supported one.
+1. Identity first. Names collide. Use the outlet, the beat and the article's subject to confirm you have the right person. For each social account, check the display name, bio and subject matter against the author before using its posts; an unconfirmed account can at most support low confidence, and goes in caveats.
 
-2. Evidence over labels. "Was a policy fellow at the Cato Institute 2016-2019" beats "libertarian". Where a label helps, attach it to its evidence and hedge it. Mark each indicator with its basis: self-described, public-record, reported, or inferred. Inferred claims are allowed but must be labeled and few.
+2. Their own words beat labels. Social posts are usually more candid than a bio and are the best evidence for leanings. Previous articles are the best evidence for style: do they report, analyze or argue; do they state opinion as fact; do they engage views they disagree with or read everything through one frame. Characterize patterns across many posts and pieces, not one offhand remark. Keep jokes, sarcasm and shared links distinct from stated positions.
 
-3. Public and professional only. Report what the author has published, said in public, listed in public bios, or what appears in public records about their professional and civic life. Do not include home addresses, phone numbers, personal email, health information, names of minor children, or family members who are not public figures. Do not speculate about ethnicity, religion, sexual orientation, or gender identity; mention such a thing only when the author has publicly discussed it as part of their own perspective, and mark it self-described.
+3. Place, do not preach. Each axis gets one position from its list, a confidence, a reason of at most 20 words, and source ids. When the evidence is thin, say 'unclear' with confidence 'none' rather than guessing. Center and mixed are real positions when the record supports them.
 
-4. Even-handed. Expertise and direct experience are as important to a reader as leanings. Give credit where the record supports it. Someone who covered a beat for twenty years has a vantage point, not just a bias. Write the foreword as a fair introduction, not a case for the prosecution.
+4. Expertise is context too. Twenty years on a beat is a vantage point, not just a bias. The bottom line and watch-fors should be fair introductions, not a case for the prosecution.
 
-5. Relevance to this article. The reader is about to read a specific piece. The most useful section connects the author's background to this subject: prior coverage, positions they have taken, stakes or conflicts, and expertise. Prefer this over generic biography.
+5. Public and professional only. Report what the author has published, posted publicly, listed in public bios, or what appears in public records about their professional and civic life. No home addresses, phone numbers, personal email, health information, or family members who are not public figures. Do not speculate about ethnicity, religion, sexual orientation or gender identity; mention such a thing only when the author has publicly discussed it as part of their own perspective.
 
-6. Cite everything. Every non-inferred claim points to sources by their given id (s1, s2, ...). The sources list in your answer must contain only the provided sources you actually relied on, with their ids, titles and URLs copied exactly. Do not cite anything that was not provided.
+6. Cite everything. Source ids only from the provided list; copy titles and URLs exactly. Evidence items should quote the author's own words where possible, briefly.
 
-7. Images. Only list image URLs that literally appear in the provided source excerpts. Never construct or guess a URL. Usually this list will be empty; the profiles list still gives the reader somewhere to look.
-
-8. Social posts. A person's own posts are usually more candid than a bio, and the best evidence for social, cultural and economic positions. When social accounts are provided, first check that each one belongs to this author (display name, bio, outlet, links, subject matter); if you are not confident, say so in caveats and treat its posts as inferred at most. Then characterize patterns across many posts rather than single offhand remarks, keep jokes, sarcasm and shared links distinct from stated positions, and cite the specific posts by id.
-
-9. Say what you do not know. Thin public footprint, stale sources and contradictions go in caveats. An honest "little public information is available" is a valid profile.
-
-Write in plain, concrete prose. No hedging filler, no moralizing, no advice about what the reader should conclude.`;
+7. Be brief everywhere. Word limits in the schema are hard limits. Short, concrete, plain.`;
 
 function topicKeywords(title) {
   const stop = new Set("a an the and or of to in on for with by from at as is are was were be this that these those it its into over under after before why how what when where who will can could should would new says said".split(" "));
@@ -126,20 +134,31 @@ function topicKeywords(title) {
     .join(" ");
 }
 
-/** Templated search queries, most useful first. */
-export function buildQueries({ author, publication, title }) {
+function domainOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Templated search queries, most useful first; the search cap slices this list. */
+export function buildQueries({ author, publication, title, url }) {
   const q = `"${author}"`;
   const topic = topicKeywords(title);
+  const domain = domainOf(url);
   const list = [
     publication ? `${q} ${publication}` : `${q} journalist`,
-    `${q} journalist OR columnist OR writer bio`,
-    `${q} wikipedia`,
-    topic ? `${q} ${topic}` : `${q} opinion`,
-    `${q} interview OR podcast`,
+    domain ? `${q} site:${domain}` : `${q} articles`,
     `${q} x.com OR twitter`,
-    `${q} bsky.app OR mastodon OR threads.net OR instagram`,
+    `${q} bsky.app OR mastodon OR threads.net`,
+    `${q} columnist OR opinion OR column`,
+    `${q} journalist OR writer bio`,
+    topic ? `${q} ${topic}` : `${q} interview`,
+    `${q} wikipedia`,
+    `${q} interview OR podcast`,
     `${q} linkedin OR substack OR muckrack`,
-    `${q} think tank OR fellow OR foundation OR campaign`,
+    `${q} think tank OR fellow OR foundation OR campaign OR donation`,
     `${q} education OR university OR graduated`,
   ];
   return Array.from(new Set(list));
@@ -168,7 +187,7 @@ export function buildUserMessage({ author, publication, title, url, excerpt, pub
       sources
         .map((s) => `[${s.id}] ${s.title}\n${s.url}\n${s.content ? s.content.replace(/\s+/g, " ").trim() : "(no excerpt)"}`)
         .join("\n\n")
-    : "\nGathered sources: none were found. Say so in caveats, keep claims minimal, and mark everything you add as inferred.";
+    : "\nGathered sources: none were found. Say so in caveats, set every axis to unclear with confidence none, and keep everything else minimal.";
   const lines = [
     `Author: ${author}`,
     publication ? `Publication: ${publication}` : null,
@@ -178,7 +197,7 @@ export function buildUserMessage({ author, publication, title, url, excerpt, pub
     excerpt ? `\nOpening of the article (for topic context and identity disambiguation):\n"""\n${excerpt}\n"""` : null,
     sourceBlock,
     accountBlock(accounts),
-    "\nWrite the profile for this author.",
+    "\nBuild the dashboard for this author.",
   ].filter(Boolean);
   return lines.join("\n");
 }

@@ -121,46 +121,7 @@ $("name-form").addEventListener("submit", (e) => {
 
 // ---------- rendering ----------
 function initials(name) {
-  return (name || "?")
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() || "")
-    .join("");
-}
-
-function sourceLinks(ids, sourceMap) {
-  if (!ids?.length) return null;
-  const links = ids
-    .map((id) => sourceMap.get(id))
-    .filter(Boolean)
-    .map((s, i) => el("a", { href: s.url, target: "_blank", rel: "noopener", title: s.title, text: `[${s.id.replace(/^s/, "")}]` }));
-  if (!links.length) return null;
-  return el("span", { class: "src" }, " ", ...links.flatMap((a, i) => (i ? [" ", a] : [a])));
-}
-
-function basisTag(basis) {
-  if (!basis) return null;
-  return el("span", { class: `basis ${basis}`, text: basis.replace("-", " ") });
-}
-
-function section(title, count, bodyChildren, open = true) {
-  if (!bodyChildren || (Array.isArray(bodyChildren) && !bodyChildren.filter(Boolean).length)) return null;
-  const d = el(
-    "details",
-    { class: "sec", open: open ? "" : null },
-    el("summary", {}, el("span", { class: "title" }, title, count ? el("span", { class: "count", text: `${count}` }) : null)),
-    el("div", { class: "body" }, ...[bodyChildren].flat())
-  );
-  return d;
-}
-
-function indicatorList(items, sourceMap) {
-  if (!items?.length) return null;
-  return el(
-    "ul",
-    {},
-    ...items.map((it) => el("li", {}, it.claim, basisTag(it.basis), sourceLinks(it.sourceIds, sourceMap)))
-  );
+  return (name || "?").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
 }
 
 function safeUrl(u) {
@@ -172,32 +133,60 @@ function safeUrl(u) {
   }
 }
 
-function searchLinks(name, publication) {
-  if (!name) return null;
-  const q = encodeURIComponent(publication ? `${name} ${publication}` : name);
+function fmtDate(d, opts = { year: "numeric", month: "short" }) {
+  if (!d) return null;
+  const t = new Date(d);
+  if (Number.isNaN(t.getTime())) return String(d);
+  return t.toLocaleDateString(undefined, opts);
+}
+
+function srcLinks(ids, sourceMap) {
+  const links = (ids || []).map((id) => sourceMap.get(id)).filter(Boolean);
+  if (!links.length) return null;
+  return el("span", { class: "src" }, ...links.flatMap((s, i) => [i ? " " : "", el("a", { href: safeUrl(s.url) || "#", target: "_blank", rel: "noopener", title: s.title, text: `[${String(s.id).replace(/^s/, "")}]` })]));
+}
+
+// ----- meters
+// Each axis: five positions from left to right, plus "unclear".
+const AXES = {
+  political: { title: "Political", left: "Left", right: "Right", scale: ["left", "center-left", "center", "center-right", "right"], labels: { left: "Left", "center-left": "Center-left", center: "Center", "center-right": "Center-right", right: "Right" } },
+  social: { title: "Social", left: "Progressive", right: "Traditional", scale: ["progressive", "leans-progressive", "mixed", "leans-traditional", "traditional"], labels: { progressive: "Progressive", "leans-progressive": "Leans progressive", mixed: "Mixed", "leans-traditional": "Leans traditional", traditional: "Traditional" } },
+  economic: { title: "Economic", left: "Interventionist", right: "Free market", scale: ["interventionist", "leans-interventionist", "mixed", "leans-market", "free-market"], labels: { interventionist: "Interventionist", "leans-interventionist": "Leans interventionist", mixed: "Mixed", "leans-market": "Leans market", "free-market": "Free market" } },
+  opinion: { title: "Opinion", left: "Reporting", right: "Advocacy", scale: ["reporting", "mostly-reporting", "mixed", "mostly-opinion", "advocacy"], labels: { reporting: "Reporting", "mostly-reporting": "Mostly reporting", mixed: "Mixed", "mostly-opinion": "Mostly opinion", advocacy: "Advocacy" } },
+  lens: { title: "Lens", left: "Many views", right: "One lens", scale: ["many-perspectives", "mostly-balanced", "mixed", "mostly-one-lens", "single-lens"], labels: { "many-perspectives": "Many perspectives", "mostly-balanced": "Mostly balanced", mixed: "Mixed", "mostly-one-lens": "Mostly one lens", "single-lens": "Single lens" } },
+};
+
+function meter(key, data, sourceMap) {
+  const ax = AXES[key];
+  const pos = data?.position && ax.scale.indexOf(data.position);
+  const known = pos != null && pos >= 0 && data.confidence !== "none";
+  const conf = data?.confidence || "none";
+  const track = el("div", { class: `track${known ? "" : " unknown"}` }, ...ax.scale.map((_, i) => el("span", { class: `seg${known && i === pos ? " on" : ""}` })));
+  const value = known ? ax.labels[data.position] : "Not enough evidence";
   return el(
-    "p",
-    { class: "muted small" },
-    "Search images: ",
-    el("a", { href: `https://www.google.com/search?tbm=isch&q=${q}`, target: "_blank", rel: "noopener", text: "Google" }),
-    " · ",
-    el("a", { href: `https://duckduckgo.com/?iax=images&ia=images&q=${q}`, target: "_blank", rel: "noopener", text: "DuckDuckGo" }),
-    " · ",
-    el("a", { href: `https://www.bing.com/images/search?q=${q}`, target: "_blank", rel: "noopener", text: "Bing" })
+    "div",
+    { class: `meter conf-${conf}` },
+    el("div", { class: "meter-head" }, el("span", { class: "meter-title", text: ax.title }), el("span", { class: "meter-value", text: value }), known ? el("span", { class: `conf ${conf}`, text: conf, title: `${conf} confidence` }) : null),
+    el("div", { class: "meter-row" }, el("span", { class: "end", text: ax.left }), track, el("span", { class: "end r", text: ax.right })),
+    known && data.why ? el("div", { class: "why" }, data.why, srcLinks(data.sourceIds, sourceMap)) : null
   );
 }
 
-function attemptsNote(attempts, open = false) {
-  if (!attempts?.length) return el("p", { class: "muted small", text: "Nothing to try: no author page or social profile was found in the sources." });
-  const lines = attempts.map((a) => {
-    const what = a.target && a.target !== a.source ? `${a.source} (${a.target.length > 48 ? a.target.slice(0, 45) + "…" : a.target})` : a.source;
-    return `${what}: ${a.ok ? (a.count ? `${a.count} image${a.count === 1 ? "" : "s"}` : "no image on page") : `failed, ${a.error || "unknown error"}`}`;
-  });
+function tile(title, ...children) {
+  return el("section", { class: "tile" }, el("h2", { text: title }), ...children);
+}
+
+function evidenceItem(e, sourceMap) {
+  const s = sourceMap.get(e.sourceId);
+  const kindLabel = { post: "post", article: "article", bio: "bio", record: "record", interview: "interview", other: "" }[e.kind] || "";
+  const where = [s?.publisher || (s?.url ? new URL(s.url).hostname.replace(/^www\./, "") : null), fmtDate(e.date) || fmtDate(s?.date)].filter(Boolean).join(", ");
+  const body = e.kind === "post" || e.kind === "interview" ? el("q", { text: e.text }) : el("span", { text: e.text });
   return el(
-    "details",
-    { class: "attempts", open: open ? "" : null },
-    el("summary", { class: "muted small", text: `Photo sources tried (${attempts.length})` }),
-    el("ul", { class: "muted small" }, ...lines.map((l) => el("li", { text: l })))
+    "li",
+    { class: `ev ev-${e.kind}` },
+    el("span", { class: "tag", text: kindLabel }),
+    body,
+    el("span", { class: "ev-meta" }, where ? ` — ${where}` : "", s?.url ? [" ", el("a", { href: safeUrl(s.url) || "#", target: "_blank", rel: "noopener", text: "↗", title: s.title })] : null)
   );
 }
 
@@ -208,227 +197,154 @@ function render(entry, fromCache) {
   const sourceMap = new Map((p.sources || []).map((s) => [s.id, s]));
   const root = $("profile");
   root.replaceChildren();
+  const legacy = !p.leanings; // built by an older version of the prompt
 
-  // hero: a collected headshot first, then Wikipedia, then anything the model saw
-  const rank = { avatar: 0, photo: 1, post: 2 };
+  // ----- header
+  const rank = { avatar: 0, photo: 1, post: 2, maybe: 4 };
   const headshot = [...(meta.images || [])].sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3)).map((i) => safeUrl(i.url)).find(Boolean);
-  const photo = headshot || wiki?.thumbnail || (p.images || []).map((i) => safeUrl(i.url)).find(Boolean) || null;
-  const img = photo
-    ? el("img", { src: photo, alt: "", referrerpolicy: "no-referrer" })
-    : el("div", { class: "ph", text: initials(p.name || ctx.author) });
-  if (photo) {
-    img.addEventListener("error", () => img.replaceWith(el("div", { class: "ph", text: initials(p.name || ctx.author) })));
-  }
+  const photo = headshot || wiki?.thumbnail || null;
+  const img = photo ? el("img", { src: photo, alt: "", referrerpolicy: "no-referrer" }) : el("div", { class: "ph", text: initials(p.name || ctx.author) });
+  if (photo) img.addEventListener("error", () => img.replaceWith(el("div", { class: "ph", text: initials(p.name || ctx.author) })));
   root.append(
-    el(
-      "div",
-      { class: "hero" },
-      img,
-      el(
-        "div",
-        {},
+    el("div", { class: "hero" }, img,
+      el("div", {},
         el("h1", { text: p.name || ctx.author }),
         p.currentRole ? el("div", { class: "role", text: p.currentRole }) : null,
-        p.oneLiner ? el("div", { class: "oneliner", text: p.oneLiner }) : null
-      )
-    )
+        p.bottomLine ? el("p", { class: "bottom", text: p.bottomLine }) : p.oneLiner ? el("p", { class: "bottom", text: p.oneLiner }) : null,
+        p.identityConfidence && p.identityConfidence !== "high" ? el("div", { class: "chip warn", title: p.identityNote || "", text: `identity: ${p.identityConfidence} confidence` }) : null
+      ))
   );
 
-  // chips
-  const chips = [];
-  if (p.identityConfidence && p.identityConfidence !== "high") {
-    chips.push(el("span", { class: "chip warn", title: p.identityNote || "", text: `identity: ${p.identityConfidence} confidence` }));
-  }
-  if (p.politics?.leaning) chips.push(el("span", { class: "chip lean", text: p.politics.leaning }));
-  if (p.background?.location) chips.push(el("span", { class: "chip", text: p.background.location }));
-  if (wiki) chips.push(el("span", { class: "chip", text: wiki.verified ? "on Wikipedia" : "Wikipedia match (unverified)" }));
-  if (chips.length) root.append(el("div", { class: "chips" }, ...chips));
-  if (p.identityConfidence && p.identityConfidence !== "high" && p.identityNote) {
-    root.append(el("p", { class: "muted small", text: p.identityNote }));
+  if (legacy) {
+    root.append(el("div", { class: "notice" }, "This profile was built by an earlier version without the dashboard. ", el("button", { class: "link", text: "Rebuild it" })));
+    root.querySelector(".notice button").addEventListener("click", () => analyze(true));
   }
 
-  // foreword
-  if (p.foreword) {
-    root.append(el("div", { class: "foreword" }, ...p.foreword.split(/\n\s*\n/).map((para) => el("p", { text: para.trim() }))));
+  // ----- leaning + style
+  const L = p.leanings || {};
+  const S = p.style || {};
+  const evidenceCounts = countEvidence(p, meta);
+  root.append(
+    tile("Leaning",
+      meter("political", L.political, sourceMap),
+      meter("social", L.social, sourceMap),
+      meter("economic", L.economic, sourceMap),
+      evidenceCounts ? el("p", { class: "muted small basis", text: evidenceCounts }) : null
+    ),
+    tile("Style", meter("opinion", S.opinion, sourceMap), meter("lens", S.lens, sourceMap))
+  );
+
+  // ----- watch for
+  const wf = p.watchFor || [];
+  if (wf.length) root.append(tile("Watch for in this article", el("ul", { class: "watch" }, ...wf.map((w) => el("li", { text: w })))));
+
+  // ----- evidence
+  const ev = p.evidence || [];
+  if (ev.length) {
+    const list = el("ul", { class: "evidence" }, ...ev.map((e) => evidenceItem(e, sourceMap)));
+    const items = [...list.children];
+    items.slice(5).forEach((li) => (li.hidden = true));
+    const more = items.length > 5 ? el("button", { class: "small-btn", text: `Show ${items.length - 5} more` }) : null;
+    more?.addEventListener("click", () => { items.forEach((li) => (li.hidden = false)); more.remove(); });
+    root.append(tile("Evidence", list, more));
   }
 
-  // relevant to this article
-  const rel = p.relevantToThisArticle || [];
-  root.append(
-    section(
-      "Relevant to this article",
-      rel.length,
-      rel.length
-        ? el("ul", {}, ...rel.map((r) => el("li", {}, el("span", { class: "kind", text: (r.kind || "").replace("-", " ") }), r.point, sourceLinks(r.sourceIds, sourceMap))))
-        : el("p", { class: "muted", text: "No specific connection found between the author's record and this subject." })
-    )
-  );
-
-  // politics
-  const pol = p.politics || {};
-  root.append(
-    section("Politics & worldview", pol.indicators?.length ?? null, [
-      pol.overview ? el("p", { text: pol.overview }) : null,
-      indicatorList(pol.indicators, sourceMap),
-    ])
-  );
-
-  // affiliations
-  const aff = p.affiliations || [];
-  root.append(
-    section(
-      "Affiliations & funding",
-      aff.length,
-      aff.length
-        ? el("ul", {}, ...aff.map((a) => el("li", {}, el("strong", { text: a.organization }), ` — ${a.relationship}`, a.whyItMatters ? el("div", { class: "muted small", text: a.whyItMatters }) : null, sourceLinks(a.sourceIds, sourceMap))))
-        : null,
-      aff.length > 0
-    )
-  );
-
-  // background
-  const bg = p.background || {};
-  const bgChildren = [];
-  if (bg.career?.length) {
-    bgChildren.push(el("h3", { class: "small muted", text: "Career" }));
-    bgChildren.push(el("ul", {}, ...bg.career.map((c) => el("li", {}, el("strong", { text: c.role }), `, ${c.organization}`, c.years ? el("span", { class: "muted", text: ` (${c.years})` }) : null, sourceLinks(c.sourceIds, sourceMap)))));
+  // ----- recent work
+  const rw = (p.recentWork || []).filter((w) => safeUrl(w.url));
+  if (rw.length) {
+    root.append(tile("Previous pieces",
+      el("ul", { class: "work" }, ...rw.map((w) => el("li", {},
+        el("span", { class: `tag kind-${w.kind}`, text: w.kind === "unclear" ? "" : w.kind }),
+        el("a", { href: safeUrl(w.url), target: "_blank", rel: "noopener", text: w.title }),
+        w.date ? el("span", { class: "muted", text: ` · ${fmtDate(w.date) || w.date}` }) : null,
+        w.note ? el("div", { class: "muted small", text: w.note }) : null
+      )))));
   }
-  if (bg.education?.length) {
-    bgChildren.push(el("h3", { class: "small muted", text: "Education" }));
-    bgChildren.push(el("ul", {}, ...bg.education.map((e) => el("li", {}, el("strong", { text: e.institution }), e.detail ? ` — ${e.detail}` : "", sourceLinks(e.sourceIds, sourceMap)))));
-  }
-  root.append(section("Background", null, bgChildren, true));
 
-  // social positions
-  const soc = p.socialPositions || {};
-  root.append(
-    section("Social, cultural & economic positions", soc.indicators?.length ?? null, [
-      soc.overview ? el("p", { text: soc.overview }) : null,
-      indicatorList(soc.indicators, sourceMap),
-    ], false)
-  );
-
-  // interests
-  const ints = p.interests || [];
-  root.append(
-    section(
-      "Interests & recurring themes",
-      ints.length,
-      ints.length ? el("ul", {}, ...ints.map((i) => el("li", {}, el("strong", { text: i.topic }), i.note ? ` — ${i.note}` : ""))) : null,
-      false
-    )
-  );
-
-  // reading questions
-  const qs = p.readingQuestions || [];
-  root.append(section("Questions to keep in mind", qs.length, qs.length ? el("ol", { class: "questions" }, ...qs.map((q) => el("li", { text: q }))) : null, true));
-
-  // photos: collected from social profiles and open sources, newest first
+  // ----- photos (compact strip)
   const photos = [];
-  for (const im of meta.images || []) {
-    const u = safeUrl(im.url);
-    if (u && !photos.some((x) => x.url === u)) photos.push({ ...im, url: u });
-  }
-  if (wiki?.image || wiki?.thumbnail) {
-    const u = wiki.image || wiki.thumbnail;
-    if (!photos.some((x) => x.url === u)) photos.push({ url: u, sourceUrl: wiki.url, source: "Wikipedia", date: null, kind: "photo", caption: "Wikipedia" });
-  }
-  for (const im of p.images || []) {
-    const u = safeUrl(im.url);
-    if (u && !photos.some((x) => x.url === u)) photos.push({ ...im, url: u, source: im.caption || "Source page", date: im.approxDate || null, kind: "photo" });
-  }
-  if (photos.length) {
-    const fmtDate = (d) => {
-      if (!d) return null;
-      const t = new Date(d);
-      if (Number.isNaN(t.getTime())) return String(d);
-      return t.toLocaleDateString(undefined, { year: "numeric", month: "short" });
-    };
-    const INITIAL = 12;
-    const grid = el("div", { class: "photos" });
-    let shown = 0;
+  for (const im of meta.images || []) { const u = safeUrl(im.url); if (u && !photos.some((x) => x.url === u)) photos.push({ ...im, url: u }); }
+  if (wiki?.image || wiki?.thumbnail) { const u = wiki.image || wiki.thumbnail; if (!photos.some((x) => x.url === u)) photos.push({ url: u, sourceUrl: wiki.url, source: "Wikipedia", date: null, kind: "photo" }); }
+  if (photos.length || Array.isArray(meta.images)) {
+    const strip = el("div", { class: "strip" });
     const tiles = photos.map((ph, i) => {
       const im = el("img", { src: ph.url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-      const label = [ph.source, fmtDate(ph.date)].filter(Boolean).join(" · ");
-      const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener", title: ph.caption || "" }, im, el("div", { class: "cap", text: label }));
-      if (i >= INITIAL) a.hidden = true;
-      // Drop anything that fails to load or turns out to be an icon.
+      const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener", title: [ph.source, fmtDate(ph.date)].filter(Boolean).join(" · ") }, im);
+      if (i >= 8) a.hidden = true;
       im.addEventListener("error", () => a.remove());
-      im.addEventListener("load", () => {
-        if (im.naturalWidth < 90 || im.naturalHeight < 90) a.remove();
-      });
+      im.addEventListener("load", () => { if (im.naturalWidth < 90 || im.naturalHeight < 90) a.remove(); });
       return a;
     });
-    grid.append(...tiles);
-    shown = Math.min(INITIAL, tiles.length);
-    const more = tiles.length > INITIAL
-      ? el("button", { class: "ghost small-btn", text: `Show ${tiles.length - INITIAL} more` })
-      : null;
-    if (more) {
-      more.addEventListener("click", () => {
-        for (const t of tiles) t.hidden = false;
-        more.remove();
-      });
-    }
-    const handles = (meta.handles || []).map((h) => h.kind === "mastodon" ? `@${h.handle}@${h.instance}` : `${h.kind === "x" ? "X" : "Bluesky"} @${h.handle}`);
-    root.append(
-      section("Recent photos", photos.length, [
-        grid,
-        el("p", { class: "muted small", text: handles.length ? `From ${handles.join(", ")} and open sources, newest first.` : "From the author's public pages and open sources, newest first." }),
-        more,
-        searchLinks(p.name || ctx.author, ctx.publication),
-        attemptsNote(meta.photoAttempts),
-      ], true)
-    );
-  } else if (Array.isArray(meta.images)) {
-    root.append(
-      section("Recent photos", null, [
-        el("p", { class: "muted", text: "No photos found." }),
-        searchLinks(p.name || ctx.author, ctx.publication),
-        attemptsNote(meta.photoAttempts, true),
-      ], true)
-    );
+    strip.append(...tiles);
+    const more = tiles.length > 8 ? el("button", { class: "small-btn", text: `All ${tiles.length}` }) : null;
+    more?.addEventListener("click", () => { tiles.forEach((t) => (t.hidden = false)); more.remove(); });
+    const handles = (meta.handles || []).map((h) => (h.kind === "mastodon" ? `@${h.handle}@${h.instance}` : `@${h.handle}`)).join(", ");
+    root.append(tile("Photos",
+      photos.length ? strip : el("p", { class: "muted small", text: "None found." }),
+      el("div", { class: "row-left" }, more, searchLinks(p.name || ctx.author, ctx.publication)),
+      handles ? el("p", { class: "muted small", text: `Accounts: ${handles}` }) : null,
+      attemptsNote(meta.photoAttempts, !photos.length)
+    ));
   }
 
-  // profiles
+  // ----- more (everything else, collapsed)
+  const bg = p.background || {};
+  const moreKids = [];
+  if (bg.career?.length) moreKids.push(el("h3", { text: "Career" }), el("ul", {}, ...bg.career.map((c) => el("li", {}, el("strong", { text: c.role }), `, ${c.organization}`, c.years ? el("span", { class: "muted", text: ` (${c.years})` }) : null, srcLinks(c.sourceIds, sourceMap)))));
+  if (bg.education?.length) moreKids.push(el("h3", { text: "Education" }), el("ul", {}, ...bg.education.map((e) => el("li", {}, el("strong", { text: e.institution }), e.detail ? ` — ${e.detail}` : "", srcLinks(e.sourceIds, sourceMap)))));
+  if (p.affiliations?.length) moreKids.push(el("h3", { text: "Affiliations" }), el("ul", {}, ...p.affiliations.map((a) => el("li", {}, el("strong", { text: a.organization }), ` — ${a.relationship}`, srcLinks(a.sourceIds, sourceMap)))));
+  if (p.interests?.length) moreKids.push(el("h3", { text: "Beats and causes" }), el("p", { text: p.interests.map((i) => (typeof i === "string" ? i : i.topic)).join(" · ") }));
+  if (bg.location) moreKids.push(el("p", { class: "muted small", text: `Based in ${bg.location}` }));
   const profs = (p.profiles || []).filter((x) => safeUrl(x.url));
   if (wiki && !profs.some((x) => /wikipedia\.org/.test(x.url))) profs.unshift({ label: "Wikipedia", url: wiki.url });
-  if (profs.length) {
-    root.append(section("Profiles", profs.length, el("div", { class: "profiles" }, ...profs.map((x) => el("a", { href: safeUrl(x.url), target: "_blank", rel: "noopener", text: x.label }))), true));
-  }
+  if (profs.length) moreKids.push(el("h3", { text: "Profiles" }), el("div", { class: "profiles" }, ...profs.map((x) => el("a", { href: safeUrl(x.url), target: "_blank", rel: "noopener", text: x.label }))));
+  if (p.sources?.length) moreKids.push(el("h3", { text: "Sources" }), el("ol", { class: "sources" }, ...p.sources.map((s) => el("li", { value: String(s.id).replace(/^s/, "") }, el("a", { href: safeUrl(s.url) || "#", target: "_blank", rel: "noopener", text: s.title || s.url }), s.publisher || s.date ? el("span", { class: "muted", text: ` — ${[s.publisher, s.date].filter(Boolean).join(", ")}` }) : null))));
+  if (moreKids.length) root.append(el("details", { class: "more" }, el("summary", { text: "More: background, affiliations, sources" }), el("div", { class: "body" }, ...moreKids)));
 
-  // sources
-  const srcs = p.sources || [];
-  if (srcs.length) {
-    root.append(
-      section(
-        "Sources",
-        srcs.length,
-        el("ol", { class: "sources" }, ...srcs.map((s) => el("li", { value: String(s.id).replace(/^s/, "") }, el("span", { class: "id", text: s.id }), el("a", { href: safeUrl(s.url) || "#", target: "_blank", rel: "noopener", text: s.title || s.url }), s.publisher || s.date ? el("span", { class: "muted", text: ` — ${[s.publisher, s.date].filter(Boolean).join(", ")}` }) : null))),
-        false
-      )
-    );
-  }
+  if (p.caveats?.length) root.append(el("div", { class: "caveats" }, el("strong", { text: "Caveats" }), el("ul", {}, ...p.caveats.map((c) => el("li", { text: c })))));
+  root.append(el("p", { class: "disclaimer", text: "Built by an AI model from public sources. It can misjudge or mix up people with the same name; each claim links to where it came from. A lens on the author, not a verdict on the article." }));
 
-  // caveats + disclaimer
-  if (p.caveats?.length) {
-    root.append(el("div", { class: "caveats" }, el("strong", { text: "Caveats" }), el("ul", {}, ...p.caveats.map((c) => el("li", { text: c })))));
-  }
-  root.append(
-    el("p", { class: "disclaimer", text: "Generated by an AI model from public web sources and may contain errors or mix up people with the same name. Verify anything that matters through the linked sources. Context about an author is a lens, not a verdict on their work." })
-  );
-
-  // footer
   const when = meta.generatedAt ? new Date(meta.generatedAt).toLocaleDateString() : "";
   const parts = [];
-  if (fromCache) parts.push(`cached ${when}`);
-  else if (when) parts.push(`generated ${when}`);
+  if (fromCache) parts.push(`cached ${when}`); else if (when) parts.push(`generated ${when}`);
   if (meta.model) parts.push(meta.model);
   if (meta.searches != null) parts.push(`${meta.searches} searches`);
   $("foot-meta").textContent = parts.join(" · ");
 
   show("profile");
   $("main").scrollTop = 0;
+}
+
+function countEvidence(p, meta) {
+  const posts = (p.sources || []).filter((s) => /^(X|Bluesky|Mastodon) post by/.test(s.title || "")).length;
+  const articles = (p.recentWork || []).length;
+  const accounts = (meta.accounts || []).length;
+  const bits = [];
+  if (posts) bits.push(`${posts} post${posts === 1 ? "" : "s"}${accounts ? ` from ${accounts} account${accounts === 1 ? "" : "s"}` : ""}`);
+  if (articles) bits.push(`${articles} previous piece${articles === 1 ? "" : "s"}`);
+  const web = (p.sources || []).length - posts;
+  if (web > 0) bits.push(`${web} web source${web === 1 ? "" : "s"}`);
+  return bits.length ? `Based on ${bits.join(", ")}.` : "";
+}
+
+function searchLinks(name, publication) {
+  if (!name) return null;
+  const q = encodeURIComponent(publication ? `${name} ${publication}` : name);
+  return el("span", { class: "muted small" }, "Search: ",
+    el("a", { href: `https://www.google.com/search?tbm=isch&q=${q}`, target: "_blank", rel: "noopener", text: "Google" }), " · ",
+    el("a", { href: `https://duckduckgo.com/?iax=images&ia=images&q=${q}`, target: "_blank", rel: "noopener", text: "DuckDuckGo" }), " · ",
+    el("a", { href: `https://www.bing.com/images/search?q=${q}`, target: "_blank", rel: "noopener", text: "Bing" }));
+}
+
+function attemptsNote(attempts, open = false) {
+  if (!attempts?.length) return null;
+  const lines = attempts.map((a) => {
+    const what = a.target && a.target !== a.source ? `${a.source} (${a.target.length > 48 ? a.target.slice(0, 45) + "…" : a.target})` : a.source;
+    return `${what}: ${a.ok ? (a.count ? `${a.count} image${a.count === 1 ? "" : "s"}` : "no image") : `failed, ${a.error || "unknown error"}`}`;
+  });
+  return el("details", { class: "attempts", open: open ? "" : null },
+    el("summary", { class: "muted small", text: `Photo sources tried (${attempts.length})` }),
+    el("ul", { class: "muted small" }, ...lines.map((l) => el("li", { text: l }))));
 }
 
 // ---------- boot ----------

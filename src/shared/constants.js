@@ -19,7 +19,7 @@ export const DEFAULT_SETTINGS = {
   apiKey: "",
   model: "anthropic/claude-sonnet-4.5",
   searchModel: "openai/gpt-4o-mini",
-  maxSearches: 6,
+  maxSearches: 8,
   resultsPerSearch: 5,
   cacheDays: 14,
   autoAnalyze: false,
