@@ -21,7 +21,7 @@ Every observation is labeled by its basis (self-described, public record, report
 3. If those results include the author's X, Bluesky or Mastodon profile, their bio and recent public posts are fetched directly (no key) and added as citable sources. Posts are the most candid evidence of social, cultural and economic positions; the writing model is told to confirm each account really belongs to the author before relying on it.
 4. It then asks the writing model of your choice, through OpenRouter, to read the article context and those sources and return a structured profile. The article's opening text is included so the model can disambiguate common names and connect the author's record to the topic. Only provided sources can be cited.
 5. Wikipedia is checked for a photo and description when the author has an article.
-6. Recent photos are collected from the author's public profiles found during research: Bluesky and Mastodon (public APIs, with recent image posts and their dates), X (the public syndication timeline behind embedded timelines, with an avatar fallback), Wikimedia Commons (dated photos), and the `og:image` of author pages and personal sites. They are merged, deduplicated and shown newest first.
+6. Photos are collected from every angle at once: the byline photo and author-page link on the article itself, Bluesky and Mastodon public APIs (avatars and recent image posts with dates), X's public syndication timeline, Wikimedia Commons and Wikidata, image search on DuckDuckGo and Bing for the author's name and publication, and a scrape of every page found during research. Page images are scored on filename, alt text and surrounding markup so headshots rank above logos, icons and stock art. Results are deduplicated across sizes and shown newest and most likely first.
 7. Profiles are cached locally (14 days by default), so reopening an article is free.
 
 The panel is an extension page rendered in an iframe, so site styles and content security policies cannot interfere with it.
@@ -31,6 +31,8 @@ The panel is an extension page rendered in an iframe, so site styles and content
 1. Clone this repository.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the repository folder.
 3. The options page opens on first install. Paste an OpenRouter key from [openrouter.ai/keys](https://openrouter.ai/keys), pick a writing model (any OpenRouter model id; the page loads the live list and the "Newest from…" menu fills in the latest model from any provider), click **Test**, then **Save**.
+
+To update later, run `scripts\pull.ps1` (or `scripts\pull.bat`) from the checkout, then click the reload icon on the extension's card in `chrome://extensions`. The script prints the commit hash to compare against the options page.
 
 No build step is needed. The extension is plain HTML, CSS, and JavaScript. The options page header shows the loaded build: version, commit hash, branch, and commit date, read from the checkout's `.git` folder. After a `git pull`, click the reload icon on the extension's card in `chrome://extensions` and check that the hash matches `git rev-parse --short HEAD`.
 
@@ -62,11 +64,13 @@ src/popup/                         toolbar popup
 src/options/                       settings page
 src/shared/                        constants and storage helpers
 scripts/make-icons.mjs             regenerates icons/ (node scripts/make-icons.mjs)
+scripts/pull.ps1, pull.bat         pull the latest commit into a local checkout
 ```
 
 ## Known limits
 
-- Recent photos depend on the author having public Bluesky, Mastodon or X accounts that the search turned up, or a Commons or author page. Instagram, Threads, LinkedIn and Facebook are closed without login, so those appear only as links. The X endpoint is unofficial and may stop working; the avatar fallback goes through unavatar.io.
+- Instagram, Threads, LinkedIn and Facebook are closed without login, so those appear only as links. The X syndication and image search endpoints are unofficial and may rate limit or change; every source that fails is listed under "Photo sources tried", and the panel links out to Google, DuckDuckGo and Bing image search so there is always a manual route.
+- Photo matching is heuristic. A photo of someone else can slip in, especially for common names, which is why each image links to the page it came from.
 - Models that lack structured-output support on OpenRouter get a prompt-only JSON request instead; most current models handle it, smaller ones may not.
 - Byline detection is heuristic. Sites that render bylines late or use unusual markup may need the name typed in the popup.
 - A model researching the open web can still confuse people who share a name. The panel flags identity confidence and lists caveats; follow the sources for anything that matters.

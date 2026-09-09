@@ -219,6 +219,7 @@ async function gatherPhotos(profile, meta, wikipedia, article, author) {
       sourceUrls: (profile.sources || []).map((s) => s.url),
       authorUrl: article?.authorUrl || null,
       authorImage: article?.authorImage || null,
+      publication: article?.publication || "",
     });
     return { images: r.images, handles: r.handles, photoAttempts: r.attempts, photosAt: Date.now() };
   } catch (e) {

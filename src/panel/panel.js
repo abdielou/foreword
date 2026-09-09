@@ -172,6 +172,21 @@ function safeUrl(u) {
   }
 }
 
+function searchLinks(name, publication) {
+  if (!name) return null;
+  const q = encodeURIComponent(publication ? `${name} ${publication}` : name);
+  return el(
+    "p",
+    { class: "muted small" },
+    "Search images: ",
+    el("a", { href: `https://www.google.com/search?tbm=isch&q=${q}`, target: "_blank", rel: "noopener", text: "Google" }),
+    " · ",
+    el("a", { href: `https://duckduckgo.com/?iax=images&ia=images&q=${q}`, target: "_blank", rel: "noopener", text: "DuckDuckGo" }),
+    " · ",
+    el("a", { href: `https://www.bing.com/images/search?q=${q}`, target: "_blank", rel: "noopener", text: "Bing" })
+  );
+}
+
 function attemptsNote(attempts, open = false) {
   if (!attempts?.length) return el("p", { class: "muted small", text: "Nothing to try: no author page or social profile was found in the sources." });
   const lines = attempts.map((a) => {
@@ -329,22 +344,39 @@ function render(entry, fromCache) {
       if (Number.isNaN(t.getTime())) return String(d);
       return t.toLocaleDateString(undefined, { year: "numeric", month: "short" });
     };
-    const grid = el(
-      "div",
-      { class: "photos" },
-      ...photos.map((ph) => {
-        const im = el("img", { src: ph.url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-        const label = [ph.source, fmtDate(ph.date)].filter(Boolean).join(" · ");
-        const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener", title: ph.caption || "" }, im, el("div", { class: "cap", text: label }));
-        im.addEventListener("error", () => a.remove());
-        return a;
-      })
-    );
+    const INITIAL = 12;
+    const grid = el("div", { class: "photos" });
+    let shown = 0;
+    const tiles = photos.map((ph, i) => {
+      const im = el("img", { src: ph.url, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+      const label = [ph.source, fmtDate(ph.date)].filter(Boolean).join(" · ");
+      const a = el("a", { href: safeUrl(ph.sourceUrl) || ph.url, target: "_blank", rel: "noopener", title: ph.caption || "" }, im, el("div", { class: "cap", text: label }));
+      if (i >= INITIAL) a.hidden = true;
+      // Drop anything that fails to load or turns out to be an icon.
+      im.addEventListener("error", () => a.remove());
+      im.addEventListener("load", () => {
+        if (im.naturalWidth < 90 || im.naturalHeight < 90) a.remove();
+      });
+      return a;
+    });
+    grid.append(...tiles);
+    shown = Math.min(INITIAL, tiles.length);
+    const more = tiles.length > INITIAL
+      ? el("button", { class: "ghost small-btn", text: `Show ${tiles.length - INITIAL} more` })
+      : null;
+    if (more) {
+      more.addEventListener("click", () => {
+        for (const t of tiles) t.hidden = false;
+        more.remove();
+      });
+    }
     const handles = (meta.handles || []).map((h) => h.kind === "mastodon" ? `@${h.handle}@${h.instance}` : `${h.kind === "x" ? "X" : "Bluesky"} @${h.handle}`);
     root.append(
       section("Recent photos", photos.length, [
         grid,
         el("p", { class: "muted small", text: handles.length ? `From ${handles.join(", ")} and open sources, newest first.` : "From the author's public pages and open sources, newest first." }),
+        more,
+        searchLinks(p.name || ctx.author, ctx.publication),
         attemptsNote(meta.photoAttempts),
       ], true)
     );
@@ -352,6 +384,7 @@ function render(entry, fromCache) {
     root.append(
       section("Recent photos", null, [
         el("p", { class: "muted", text: "No photos found." }),
+        searchLinks(p.name || ctx.author, ctx.publication),
         attemptsNote(meta.photoAttempts, true),
       ], true)
     );

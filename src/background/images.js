@@ -14,7 +14,9 @@
 //   kind: "avatar" | "post" | "photo"
 
 const TIMEOUT_MS = 8000;
-const MAX_IMAGES = 16;
+const MAX_IMAGES = 48;
+const MAX_PAGES = 14;      // source pages scraped for images
+const PAGE_CONCURRENCY = 6;
 const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif)(\?|$)/i;
 
 function withTimeout(ms) {
@@ -294,22 +296,239 @@ async function fromPage(url, label) {
   return [{ url: abs, sourceUrl: url, source: label || host, date: null, kind: "photo", caption: `${label || host} page image` }];
 }
 
-// ------------------------------------------------------------------ merge
-function dedupe(images) {
-  const seen = new Set();
-  const out = [];
-  for (const im of images) {
-    if (!im?.url || !/^https?:\/\//.test(im.url)) continue;
-    const key = im.url.replace(/[?#].*$/, "");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(im);
+
+// ---------------------------------------------------- generic page scraping
+// Service workers have no DOMParser, so parse the markup with regexes.
+const IMG_TAG_RE = /<img\b[^>]*>/gi;
+const JUNK_RE = /(sprite|icon|favicon|logo|placeholder|default[-_]?(avatar|user|profile)|blank|spacer|pixel|tracking|1x1|transparent|loading|lazy[-_]?load|advert|banner|share|social[-_]?icon|emoji|flag|badge|button|arrow|chevron|search|menu|close|play[-_]?button|paywall|subscribe|newsletter)/i;
+const PHOTO_HINT_RE = /(author|byline|headshot|portrait|profile|avatar|staff|contributor|columnist|reporter|writer|mug|bio|people|person|face)/i;
+
+function attrOf(tag, name) {
+  const m =
+    tag.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i")) ||
+    tag.match(new RegExp(`\\b${name}\\s*=\\s*'([^']*)'`, "i")) ||
+    tag.match(new RegExp(`\\b${name}\\s*=\\s*([^\\s>]+)`, "i"));
+  return m ? m[1].trim() : null;
+}
+
+// Largest candidate in a srcset.
+function fromSrcset(srcset) {
+  if (!srcset) return null;
+  let best = null;
+  let bestW = -1;
+  for (const part of srcset.split(",")) {
+    const bits = part.trim().split(/\s+/);
+    if (!bits[0]) continue;
+    const w = /(\d+)w/.exec(bits[1] || "") ? Number(RegExp.$1) : /(\d+(?:\.\d+)?)x/.test(bits[1] || "") ? Number(RegExp.$1) * 1000 : 0;
+    if (w > bestW) {
+      bestW = w;
+      best = bits[0];
+    }
   }
+  return best;
+}
+
+function nameTokens(name) {
+  const parts = (name || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  return { parts, surname: parts[parts.length - 1] || "", slug: parts.join("[-_ .]?") };
+}
+
+// The hostname often carries the publication's name, which can collide with
+// the author's, so name matching only ever looks at the path.
+function urlPath(url) {
+  try {
+    const u = new URL(url);
+    return decodeURIComponent(u.pathname + u.search).toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+function fileName(url) {
+  const path = urlPath(url);
+  return path.split("/").filter(Boolean).pop() || path;
+}
+
+function scoreImage({ url, alt, tag, context }, name) {
+  // A junk filename is disqualifying no matter what surrounds it.
+  if (JUNK_RE.test(fileName(url))) return 0;
+  const { parts, surname } = nameTokens(name);
+  const path = urlPath(url);
+  const hay = `${path} ${alt || ""} ${context || ""}`.toLowerCase();
+  let score = 0;
+  if (surname && new RegExp(`\\b${surname}\\b`).test((alt || "").toLowerCase())) score += 6;
+  if (surname && new RegExp(surname).test(path)) score += 5;
+  if (parts.length > 1 && parts.every((w) => hay.includes(w))) score += 4;
+  if (PHOTO_HINT_RE.test(path) || PHOTO_HINT_RE.test(alt || "")) score += 3;
+  else if (PHOTO_HINT_RE.test(context || "")) score += 2;
+  if (tag === "meta") score += 2;
+  if (JUNK_RE.test(path)) score -= 6;
+  const declared = Number(attrOf(context || "", "width") || 0);
+  if (declared && declared < 64) score -= 6;
+  return score;
+}
+
+function usableImageUrl(base, raw) {
+  if (!raw) return null;
+  let u = raw.trim().replace(/&amp;/g, "&");
+  if (!u || u.startsWith("data:") || /\.svg(\?|$)/i.test(u)) return null;
+  if (u.startsWith("//")) u = `https:${u}`;
+  const abs = absolute(base, u);
+  if (!abs || !/^https?:\/\//.test(abs)) return null;
+  return abs;
+}
+
+/** Every plausible photo on one page, scored for "is this the author". */
+async function scrapePage(url, name, label) {
+  const html = await getText(url);
+  const head = html.slice(0, 400000);
+  const found = [];
+
+  const metaRe = /<meta[^>]+(?:property|name)\s*=\s*["'](og:image(?::secure_url)?|twitter:image(?::src)?)["'][^>]*>/gi;
+  let m;
+  while ((m = metaRe.exec(head))) {
+    const abs = usableImageUrl(url, attrOf(m[0], "content"));
+    if (abs) found.push({ url: abs, alt: "", tag: "meta", context: m[0] });
+  }
+  // JSON-LD Person / ImageObject images
+  const ldRe = /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi;
+  while ((m = ldRe.exec(head))) {
+    const urls = m[1].match(/"(?:image|contentUrl|thumbnailUrl|logo)"\s*:\s*"([^"]+)"/g) || [];
+    for (const raw of urls) {
+      const abs = usableImageUrl(url, raw.split('"')[3]);
+      if (abs) found.push({ url: abs, alt: "", tag: "meta", context: "json-ld" });
+    }
+  }
+  IMG_TAG_RE.lastIndex = 0;
+  while ((m = IMG_TAG_RE.exec(head))) {
+    const tag = m[0];
+    const src =
+      attrOf(tag, "src") ||
+      attrOf(tag, "data-src") ||
+      attrOf(tag, "data-original") ||
+      attrOf(tag, "data-lazy-src") ||
+      fromSrcset(attrOf(tag, "srcset") || attrOf(tag, "data-srcset"));
+    const abs = usableImageUrl(url, src);
+    if (!abs) continue;
+    // A little surrounding markup helps: class names, figcaption words.
+    const around = head.slice(Math.max(0, m.index - 220), m.index + tag.length + 220);
+    found.push({ url: abs, alt: attrOf(tag, "alt") || "", tag: "img", context: `${tag} ${around.replace(/<[^>]+>/g, " ")}` });
+  }
+
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  return found
+    .map((f) => ({ ...f, score: scoreImage(f, name) }))
+    .filter((f) => f.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4)
+    .map((f) => ({
+      url: f.url,
+      sourceUrl: url,
+      source: label || host,
+      date: null,
+      kind: f.score >= 5 ? "photo" : "maybe",
+      caption: (f.alt || `${label || host} page`).slice(0, 80),
+      score: f.score,
+    }));
+}
+
+// ------------------------------------------------------------ image search
+// Open image search endpoints. Both are unofficial and may change or rate
+// limit; each failure is recorded and the rest of the collector continues.
+async function fromDuckDuckGoImages(query) {
+  const q = encodeURIComponent(query);
+  const shell = await getText(`https://duckduckgo.com/?q=${q}&iax=images&ia=images`);
+  const vqd = (shell.match(/vqd=["']?([\w-]{10,})["']?/) || [])[1];
+  if (!vqd) throw new Error("no vqd token");
+  const res = await fetch(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${q}&vqd=${vqd}&f=,,,&p=1`, {
+    signal: withTimeout(TIMEOUT_MS),
+    headers: { accept: "application/json", referer: "https://duckduckgo.com/" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = await res.json();
+  return (j.results || []).slice(0, 12).map((r) => ({
+    url: r.image,
+    sourceUrl: r.url || r.image,
+    source: hostOf(r.url) || "Image search",
+    date: null,
+    kind: "photo",
+    caption: (r.title || "Image search result").slice(0, 80),
+    score: 5,
+  }));
+}
+
+async function fromBingImages(query) {
+  const html = await getText(`https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC2&first=1`);
+  const out = [];
+  const re = /murl&quot;:&quot;(.*?)&quot;[\s\S]{0,400}?purl&quot;:&quot;(.*?)&quot;/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < 12) {
+    const img = m[1].replace(/\\u002f/gi, "/").replace(/\\\//g, "/");
+    const page = m[2].replace(/\\u002f/gi, "/").replace(/\\\//g, "/");
+    if (!/^https?:\/\//.test(img)) continue;
+    out.push({ url: img, sourceUrl: page || img, source: hostOf(page) || "Image search", date: null, kind: "photo", caption: "Image search result", score: 5 });
+  }
+  if (!out.length) throw new Error("no results parsed");
   return out;
 }
 
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+// ------------------------------------------------------------------ wikidata
+async function fromWikidata(name) {
+  const search = await getJson(`https://www.wikidata.org/w/api.php?action=wbsearchentities&format=json&origin=*&language=en&limit=3&search=${encodeURIComponent(name)}`);
+  const hit = (search.search || [])[0];
+  if (!hit) throw new Error("no entity");
+  const ent = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetclaims&format=json&origin=*&property=P18&entity=${hit.id}`);
+  const files = (ent.claims?.P18 || []).map((c) => c.mainsnak?.datavalue?.value).filter(Boolean);
+  return files.slice(0, 3).map((file) => ({
+    url: `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=600`,
+    sourceUrl: `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(file)}`,
+    source: "Wikidata",
+    date: null,
+    kind: "photo",
+    caption: `${hit.label || name}${hit.description ? ` — ${hit.description}` : ""}`.slice(0, 80),
+    score: 6,
+  }));
+}
+
+// ------------------------------------------------------------------ merge
+function dedupeKey(url) {
+  return url
+    .replace(/[?#].*$/, "")
+    .replace(/^https?:\/\//, "")
+    .replace(/\/(thumb|thumbs|resize|resized|crop)\//gi, "/")
+    .replace(/[-_](\d{2,4})x(\d{2,4})(?=\.[a-z]{3,4}$)/i, "")
+    .replace(/[-_](normal|bigger|mini|small|medium|large|thumb|thumbnail|\d{2,4}w)(?=\.[a-z]{3,4}$)/i, "")
+    .replace(/^\d+px-/, "")
+    .toLowerCase();
+}
+
+function dedupe(images) {
+  const seen = new Map();
+  for (const im of images) {
+    if (!im?.url || !/^https?:\/\//.test(im.url)) continue;
+    const key = dedupeKey(im.url);
+    const prev = seen.get(key);
+    // Keep the better-scored (or dated) copy of the same photo.
+    if (!prev || (im.score || 0) > (prev.score || 0) || (!prev.date && im.date)) seen.set(key, prev ? { ...im, date: im.date || prev.date } : im);
+  }
+  return [...seen.values()];
+}
+
 function sortNewest(images) {
-  const rank = { post: 0, avatar: 1, photo: 2 };
+  const rank = { post: 0, avatar: 1, photo: 2, maybe: 4 };
   return images.sort((a, b) => {
     if (a.date && b.date) return b.date.localeCompare(a.date);
     if (a.date) return -1;
@@ -338,10 +557,10 @@ function looksLikeAuthorPage(url) {
 }
 
 /**
- * @param {{ name: string, profiles: {label:string,url:string}[], sourceUrls: string[], authorUrl?: string|null, authorImage?: string|null }} input
+ * @param {{ name, profiles, sourceUrls, authorUrl, authorImage, publication, queries }} input
  * @returns {Promise<{ images: object[], handles: object[], attempts: object[] }>}
  */
-export async function collectImages({ name, profiles = [], sourceUrls = [], authorUrl = null, authorImage = null }) {
+export async function collectImages({ name, profiles = [], sourceUrls = [], authorUrl = null, authorImage = null, publication = "" }) {
   const targets = new Map(); // key -> {kind, ...}
   const add = (raw, label) => {
     const c = classifyProfileUrl(raw);
@@ -349,14 +568,11 @@ export async function collectImages({ name, profiles = [], sourceUrls = [], auth
     const key = c.kind === "page" ? `page:${c.url.replace(/[?#].*$/, "")}` : `${c.kind}:${(c.instance || "") + (c.handle || "")}`.toLowerCase();
     if (!targets.has(key)) targets.set(key, { ...c, label });
   };
-  // 1. The byline link on the article itself, then the model's profile list.
   if (authorUrl) add(authorUrl, "Author page");
   for (const p of profiles) add(p.url, p.label);
-  // 2. Social handles and author-page-looking URLs among the raw search results.
   for (const u of sourceUrls) {
     const c = classifyProfileUrl(u);
-    if (!c) continue;
-    if (c.kind === "page" ? looksLikeAuthorPage(u) : c.kind !== "closed" && c.kind !== "wikipedia") add(u, null);
+    if (c && c.kind !== "closed" && c.kind !== "wikipedia") add(u, null);
   }
 
   const attempts = [];
@@ -371,26 +587,50 @@ export async function collectImages({ name, profiles = [], sourceUrls = [], auth
         return [];
       });
 
+  // 1. Social accounts and structured sources run first; they are the most reliable.
   const tasks = [];
-  let pages = 0;
+  const pageTargets = [];
   for (const t of targets.values()) {
     if (t.kind === "bluesky") tasks.push(run("Bluesky", `@${t.handle}`, () => fromBluesky(t.handle)));
     else if (t.kind === "mastodon") tasks.push(run("Mastodon", `@${t.handle}@${t.instance}`, () => fromMastodon(t.instance, t.handle)));
     else if (t.kind === "x") tasks.push(run("X", `@${t.handle}`, () => fromX(t.handle)));
-    else if (t.kind === "page" && pages < 6) {
-      pages++;
-      tasks.push(run(t.label || "Page", t.url, () => fromPage(t.url, t.label)));
-    }
+    else if (t.kind === "page") pageTargets.push(t);
   }
-  if (name) tasks.push(run("Wikimedia Commons", name, () => fromCommons(name)));
+  if (name) {
+    tasks.push(run("Wikimedia Commons", name, () => fromCommons(name)));
+    tasks.push(run("Wikidata", name, () => fromWikidata(name)));
+  }
+
+  // 2. Image search, the same thing you would type into a search engine.
+  const searchQueries = [];
+  if (name) {
+    searchQueries.push(publication ? `${name} ${publication}` : name);
+    searchQueries.push(`${name} journalist headshot`);
+  }
+  for (const q of searchQueries) {
+    tasks.push(run("Image search (DuckDuckGo)", q, () => fromDuckDuckGoImages(q)));
+    tasks.push(run("Image search (Bing)", q, () => fromBingImages(q)));
+  }
+
+  // 3. Every gathered page is scraped for photos of this person, author pages first.
+  pageTargets.sort((a, b) => (looksLikeAuthorPage(b.url) ? 1 : 0) - (looksLikeAuthorPage(a.url) ? 1 : 0));
+  const pages = pageTargets.slice(0, MAX_PAGES);
+  const pageResults = [];
+  for (let i = 0; i < pages.length; i += PAGE_CONCURRENCY) {
+    const batch = pages.slice(i, i + PAGE_CONCURRENCY);
+    pageResults.push(
+      ...(await Promise.all(batch.map((t) => run(t.label || "Page", t.url, () => scrapePage(t.url, name, t.label)))))
+    );
+  }
 
   const settled = await Promise.allSettled(tasks);
   const images = [];
   if (authorImage && /^https?:\/\//.test(authorImage)) {
-    images.push({ url: authorImage, sourceUrl: authorUrl || authorImage, source: "Article byline", date: null, kind: "avatar", caption: "Byline photo on the article" });
+    images.push({ url: authorImage, sourceUrl: authorUrl || authorImage, source: "Article byline", date: null, kind: "avatar", caption: "Byline photo on the article", score: 9 });
     attempts.push({ source: "Article byline", target: authorImage, ok: true, count: 1 });
   }
   for (const s of settled) if (s.status === "fulfilled" && Array.isArray(s.value)) images.push(...s.value);
+  for (const arr of pageResults) images.push(...arr);
 
   const handles = [...targets.values()].filter((t) => t.kind !== "page").map(({ kind, handle, instance, url }) => ({ kind, handle, instance, url }));
   return { images: sortNewest(dedupe(images)).slice(0, MAX_IMAGES), handles, attempts };
