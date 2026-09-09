@@ -14,8 +14,8 @@ import { PROFILE_SCHEMA, SYSTEM_PROMPT, buildUserMessage, buildQueries } from ".
 
 const BASE_URL = "https://openrouter.ai/api/v1";
 const APP_HEADERS = {
-  "HTTP-Referer": "https://github.com/abdielou/author-lens",
-  "X-Title": "Author Lens",
+  "HTTP-Referer": "https://github.com/abdielou/foreword",
+  "X-Title": "Foreword",
 };
 
 export class ApiError extends Error {
@@ -45,7 +45,7 @@ async function readErrorBody(res) {
 }
 
 function friendlyStatus(status, detail) {
-  if (status === 401) return "The OpenRouter API key was rejected. Check it in Author Lens options.";
+  if (status === 401) return "The OpenRouter API key was rejected. Check it in Foreword options.";
   if (status === 402) return "OpenRouter reports insufficient credits on this key.";
   if (status === 403) return `OpenRouter refused the request${detail ? `: ${detail}` : ""}.`;
   if (status === 404) return `Model not found on OpenRouter${detail ? `: ${detail}` : ""}. Check the model id in options.`;
@@ -303,10 +303,10 @@ async function synthesize(settings, article, sources, accounts, onProgress, sign
  */
 export async function researchAuthor(settings, article, onProgress, signal, fetchSocial) {
   if (!settings.apiKey) {
-    throw new ApiError("No OpenRouter API key set. Open Author Lens options to add one.", { status: 0 });
+    throw new ApiError("No OpenRouter API key set. Open Foreword options to add one.", { status: 0 });
   }
   if (!settings.model) {
-    throw new ApiError("No model selected. Open Author Lens options to choose one.", { status: 0 });
+    throw new ApiError("No model selected. Open Foreword options to choose one.", { status: 0 });
   }
 
   const { sources, queries, failures } = await gatherSources(settings, article, onProgress, signal);

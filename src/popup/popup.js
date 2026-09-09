@@ -17,7 +17,7 @@ $("nokey-link").addEventListener("click", (e) => {
 async function init() {
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !/^https?:/.test(tab.url || "")) {
-    $("detail").textContent = "Open a web article to use Author Lens.";
+    $("detail").textContent = "Open a web article to use Foreword.";
     $("go").disabled = true;
     return;
   }
@@ -36,7 +36,7 @@ async function init() {
       const r = await chrome.tabs.sendMessage(tab.id, { type: "al:get-page-detection" });
       detection = r?.detection || null;
     } catch {
-      $("detail").textContent = "Reload the page to let Author Lens read it.";
+      $("detail").textContent = "Reload the page to let Foreword read it.";
     }
   }
   if (detection?.author) {

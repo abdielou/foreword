@@ -34,7 +34,7 @@ function show(state) {
 }
 
 function closePanel() {
-  window.parent.postMessage({ source: "author-lens", type: MSG.CLOSE_PANEL }, "*");
+  window.parent.postMessage({ source: "foreword", type: MSG.CLOSE_PANEL }, "*");
 }
 $("close").addEventListener("click", closePanel);
 $("options").addEventListener("click", () => chrome.runtime.openOptionsPage());

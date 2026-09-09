@@ -1,4 +1,4 @@
-// Shared constants for Author Lens. Imported by the service worker,
+// Shared constants for Foreword. Imported by the service worker,
 // panel, popup and options pages (all ES modules).
 
 export const STORAGE_KEYS = {

@@ -7,5 +7,5 @@ git pull --ff-only origin %BRANCH%
 for /f "delims=" %%h in ('git rev-parse --short HEAD') do set HASH=%%h
 echo.
 echo Now at %HASH%
-echo Reload Author Lens on chrome://extensions, then check the options page shows commit %HASH%.
+echo Reload Foreword on chrome://extensions, then check the options page shows commit %HASH%.
 pause

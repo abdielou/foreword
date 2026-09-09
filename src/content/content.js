@@ -1,12 +1,12 @@
-// Author Lens content script.
+// Foreword content script.
 // 1. Detects the article's author, publication, title and opening text.
 // 2. Reports the detection to the service worker.
 // 3. Shows a small badge; clicking it opens the panel (an extension page in
 //    an iframe, so page CSP and styles cannot interfere with it).
 (() => {
   if (window.top !== window) return; // main frame only
-  if (window.__authorLensLoaded) return;
-  window.__authorLensLoaded = true;
+  if (window.__forewordLoaded) return;
+  window.__forewordLoaded = true;
 
   const MSG = {
     DETECTED: "al:detected",
@@ -306,7 +306,7 @@
     if (!det.author) return false;
     if (!host) {
       host = document.createElement("div");
-      host.id = "author-lens-host";
+      host.id = "foreword-host";
       const shadow = host.attachShadow({ mode: "closed" });
       const side = settings.panelSide === "left" ? "left" : "right";
       const style = document.createElement("style");
@@ -321,7 +321,7 @@
       const wrap = document.createElement("div");
       wrap.className = "wrap";
       frame = document.createElement("iframe");
-      frame.setAttribute("title", "Author Lens");
+      frame.setAttribute("title", "Foreword");
       frame.setAttribute("allow", "");
       wrap.appendChild(frame);
       shadow.append(style, wrap);
@@ -365,7 +365,7 @@
   function showBadge() {
     if (!settings.showBadge || !detection?.author || badge || badgeDismissed) return;
     badge = document.createElement("div");
-    badge.id = "author-lens-badge";
+    badge.id = "foreword-badge";
     const shadow = badge.attachShadow({ mode: "closed" });
     const side = settings.panelSide === "left" ? "left" : "right";
     const style = document.createElement("style");
@@ -387,7 +387,7 @@
     const b = document.createElement("div");
     b.className = "b";
     b.setAttribute("role", "button");
-    b.setAttribute("title", "Open Author Lens");
+    b.setAttribute("title", "Open Foreword");
     const dot = document.createElement("span");
     dot.className = "dot";
     const name = document.createElement("span");
@@ -418,7 +418,7 @@
 
   // --------------------------------------------------------------- messaging
   window.addEventListener("message", (e) => {
-    if (e.origin !== EXT_ORIGIN || !e.data || e.data.source !== "author-lens") return;
+    if (e.origin !== EXT_ORIGIN || !e.data || e.data.source !== "foreword") return;
     if (e.data.type === MSG.CLOSE_PANEL) closePanel();
   });
 

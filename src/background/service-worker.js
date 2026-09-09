@@ -36,7 +36,7 @@ async function updateBadge(tabId, detection) {
     await chrome.action.setBadgeBackgroundColor({ tabId, color: "#3b6ea5" });
     await chrome.action.setTitle({
       tabId,
-      title: detection?.author ? `Author Lens: ${detection.author}` : "Author Lens",
+      title: detection?.author ? `Foreword: ${detection.author}` : "Foreword",
     });
   } catch {
     /* tab may be gone */

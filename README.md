@@ -1,8 +1,8 @@
-# Author Lens
+# Foreword
 
-A Chrome extension that gives every article a foreword.
+A Chrome extension that gives every article the foreword it never had: a one-glance dashboard on the author.
 
-When two people talk face to face, each knows where the other is coming from and reads what is said in that light. A book carries a foreword and an author bio that do the same job. A news article or opinion piece usually offers only a name. Author Lens fills in that missing context, from public sources, so you can weigh the piece for yourself.
+When two people talk face to face, each knows where the other is coming from and reads what is said in that light. A book carries a foreword and an author bio that do the same job. A news article or opinion piece usually offers only a name. Foreword fills in that missing context, from public sources, so you can weigh the piece for yourself.
 
 Open an article, click the "Who is …?" badge, and a side panel shows a one-glance dashboard:
 

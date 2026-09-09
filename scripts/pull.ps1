@@ -15,6 +15,6 @@ $date = git log -1 --format=%cI
 Write-Host ""
 Write-Host "Now at $hash ($date)" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next: open chrome://extensions, click the reload icon on Author Lens," -ForegroundColor Yellow
+Write-Host "Next: open chrome://extensions, click the reload icon on Foreword," -ForegroundColor Yellow
 Write-Host "then open its options page and confirm it shows commit $hash." -ForegroundColor Yellow
 if ($Host.Name -eq "ConsoleHost") { Read-Host "Press Enter to close" }
