@@ -136,6 +136,13 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!msg.force) {
         const cached = await getCachedProfile(author, publication, settings.cacheDays);
         if (cached) {
+          if (!Array.isArray(cached.meta?.images)) {
+            // Profile predates the photo collector: add photos without re-running the model.
+            send({ type: "status", stage: "enriching", text: "Collecting recent photos…" });
+            const enriched = await enrichWithImages(cached, msg.article);
+            send({ type: "result", entry: enriched, fromCache: true });
+            return;
+          }
           send({ type: "result", entry: cached, fromCache: true });
           return;
         }
@@ -176,24 +183,9 @@ chrome.runtime.onConnect.addListener((port) => {
       }
 
       send({ type: "status", stage: "enriching", text: "Collecting recent photos…" });
-      let images = [];
-      let handles = [];
-      try {
-        const profiles = [...(profile.profiles || [])];
-        for (const a of meta.accounts || []) profiles.push({ label: a.kind, url: a.url });
-        if (wikipedia?.url) profiles.push({ label: "Wikipedia", url: wikipedia.url });
-        const r = await collectImages({
-          name: profile.name || author,
-          profiles,
-          sourceUrls: (profile.sources || []).map((s) => s.url),
-        });
-        images = r.images;
-        handles = r.handles;
-      } catch {
-        images = [];
-      }
+      const photos = await gatherPhotos(profile, meta, wikipedia, msg.article, author);
 
-      const entry = await setCachedProfile(author, publication, profile, { ...meta, wikipedia, images, handles, article: msg.article });
+      const entry = await setCachedProfile(author, publication, profile, { ...meta, wikipedia, ...photos, article: msg.article });
       send({ type: "result", entry, fromCache: false });
     } catch (e) {
       if (e?.name === "AbortError") {
@@ -215,6 +207,30 @@ chrome.runtime.onConnect.addListener((port) => {
     controller?.abort();
   });
 });
+
+async function gatherPhotos(profile, meta, wikipedia, article, author) {
+  try {
+    const profiles = [...(profile.profiles || [])];
+    for (const a of meta?.accounts || []) profiles.push({ label: a.kind, url: a.url });
+    if (wikipedia?.url) profiles.push({ label: "Wikipedia", url: wikipedia.url });
+    const r = await collectImages({
+      name: profile.name || author,
+      profiles,
+      sourceUrls: (profile.sources || []).map((s) => s.url),
+      authorUrl: article?.authorUrl || null,
+      authorImage: article?.authorImage || null,
+    });
+    return { images: r.images, handles: r.handles, photoAttempts: r.attempts, photosAt: Date.now() };
+  } catch (e) {
+    return { images: [], handles: [], photoAttempts: [{ source: "collector", target: "", ok: false, count: 0, error: e?.message || String(e) }], photosAt: Date.now() };
+  }
+}
+
+async function enrichWithImages(cached, article) {
+  const { profile, meta } = cached;
+  const photos = await gatherPhotos(profile, meta, meta?.wikipedia, article, article?.author);
+  return setCachedProfile(article.author, article.publication, profile, { ...meta, ...photos, article: meta?.article || article });
+}
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "install") {

@@ -70,7 +70,7 @@
   }
 
   function fromJsonLd() {
-    const out = { authors: [], publication: null, title: null, publishedAt: null };
+    const out = { authors: [], publication: null, title: null, publishedAt: null, authorUrl: null, authorImage: null };
     for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
       let data;
       try {
@@ -92,7 +92,18 @@
         const articleish = /article|blogposting|report|review|opinion|newsarticle|analysisnewsarticle/.test(t);
         if (!articleish && !n.author) continue;
         const names = personFromLd(n.author);
-        if (names.length && !out.authors.length) out.authors = names;
+        if (names.length && !out.authors.length) {
+          out.authors = names;
+          const first = Array.isArray(n.author) ? n.author[0] : n.author;
+          if (first && typeof first === "object") {
+            const u = first.url || first.sameAs;
+            const url = Array.isArray(u) ? u[0] : u;
+            if (typeof url === "string" && /^https?:/.test(url)) out.authorUrl = url;
+            const im = first.image;
+            const img = typeof im === "string" ? im : im?.url || im?.contentUrl;
+            if (typeof img === "string" && /^https?:/.test(img)) out.authorImage = img;
+          }
+        }
         if (!out.publication && n.publisher?.name) out.publication = String(n.publisher.name);
         if (!out.title && n.headline) out.title = String(n.headline);
         if (!out.publishedAt && n.datePublished) out.publishedAt = String(n.datePublished);
@@ -165,6 +176,45 @@
     return authors;
   }
 
+  // The byline's own link is the most reliable path to an author page and headshot.
+  function authorLinkAndImage(name) {
+    const out = { url: null, image: null };
+    const sels = ['a[rel="author"]', '[itemprop="author"] a[href]', '[class*="byline" i] a[href]', '[class*="author" i] a[href]'];
+    for (const sel of sels) {
+      let nodes;
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch {
+        continue;
+      }
+      for (const a of Array.from(nodes).slice(0, 8)) {
+        const t = text(a);
+        if (!t || (name && !t.toLowerCase().includes(name.split(" ")[0].toLowerCase()))) continue;
+        try {
+          const u = new URL(a.getAttribute("href"), location.href);
+          if (/^https?:$/.test(u.protocol) && !/^(mailto|tel):/.test(a.getAttribute("href"))) {
+            out.url = u.href;
+            break;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (out.url) break;
+    }
+    // A small headshot next to the byline.
+    const imgSel = '[class*="byline" i] img, [class*="author" i] img, [itemprop="author"] img, [rel="author"] img';
+    for (const img of Array.from(document.querySelectorAll(imgSel)).slice(0, 6)) {
+      const src = img.currentSrc || img.src;
+      const w = img.naturalWidth || img.width || 0;
+      if (src && /^https?:/.test(src) && w >= 32 && w <= 800 && !/logo|icon|sprite|badge/i.test(src)) {
+        out.image = src;
+        break;
+      }
+    }
+    return out;
+  }
+
   function publicationName() {
     return (
       meta('meta[property="og:site_name"]') ||
@@ -222,9 +272,12 @@
       source = "dom";
     }
     if (!authors.length) return null;
+    const link = authorLinkAndImage(authors[0]);
     return {
       author: authors[0],
       coAuthors: authors.slice(1, 4),
+      authorUrl: ld.authorUrl || link.url,
+      authorImage: ld.authorImage || link.image,
       publication: ld.publication || publicationName(),
       title: ld.title || articleTitle(),
       publishedAt: ld.publishedAt || meta('meta[property="article:published_time"]') || null,

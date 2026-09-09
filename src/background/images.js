@@ -325,39 +325,81 @@ function sortNewest(images) {
  * @param {{ name: string, profiles: {label:string,url:string}[], sourceUrls: string[], authorPageUrl?: string }} input
  * @returns {Promise<{ images: object[], handles: object[] }>}
  */
-export async function collectImages({ name, profiles = [], sourceUrls = [] }) {
+const AUTHOR_PAGE_RE = /\/(author|authors|writer|writers|columnist|columnists|contributor|contributors|staff|people|profile|profiles|journalist|journalists|reporter|reporters|byline|bylines|team|about|bio)s?\//i;
+const AUTHOR_HOST_RE = /(^|\.)(muckrack\.com|substack\.com|medium\.com|linktr\.ee|about\.me)$/i;
+
+function looksLikeAuthorPage(url) {
+  try {
+    const u = new URL(url);
+    return AUTHOR_PAGE_RE.test(u.pathname) || AUTHOR_HOST_RE.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {{ name: string, profiles: {label:string,url:string}[], sourceUrls: string[], authorUrl?: string|null, authorImage?: string|null }} input
+ * @returns {Promise<{ images: object[], handles: object[], attempts: object[] }>}
+ */
+export async function collectImages({ name, profiles = [], sourceUrls = [], authorUrl = null, authorImage = null }) {
   const targets = new Map(); // key -> {kind, ...}
   const add = (raw, label) => {
     const c = classifyProfileUrl(raw);
     if (!c || c.kind === "closed" || c.kind === "wikipedia") return;
-    const key = c.kind === "page" ? `page:${c.url}` : `${c.kind}:${(c.instance || "") + (c.handle || "")}`.toLowerCase();
+    const key = c.kind === "page" ? `page:${c.url.replace(/[?#].*$/, "")}` : `${c.kind}:${(c.instance || "") + (c.handle || "")}`.toLowerCase();
     if (!targets.has(key)) targets.set(key, { ...c, label });
   };
+  // 1. The byline link on the article itself, then the model's profile list.
+  if (authorUrl) add(authorUrl, "Author page");
   for (const p of profiles) add(p.url, p.label);
+  // 2. Social handles and author-page-looking URLs among the raw search results.
   for (const u of sourceUrls) {
     const c = classifyProfileUrl(u);
-    if (c && c.kind !== "page" && c.kind !== "closed" && c.kind !== "wikipedia") add(u, null);
+    if (!c) continue;
+    if (c.kind === "page" ? looksLikeAuthorPage(u) : c.kind !== "closed" && c.kind !== "wikipedia") add(u, null);
   }
+
+  const attempts = [];
+  const run = (label, target, fn) =>
+    fn()
+      .then((imgs) => {
+        attempts.push({ source: label, target, ok: true, count: imgs.length });
+        return imgs;
+      })
+      .catch((e) => {
+        attempts.push({ source: label, target, ok: false, count: 0, error: (e?.message || String(e)).slice(0, 80) });
+        return [];
+      });
 
   const tasks = [];
   let pages = 0;
   for (const t of targets.values()) {
-    if (t.kind === "bluesky") tasks.push(fromBluesky(t.handle));
-    else if (t.kind === "mastodon") tasks.push(fromMastodon(t.instance, t.handle));
-    else if (t.kind === "x") tasks.push(fromX(t.handle));
-    else if (t.kind === "page" && pages < 4) {
+    if (t.kind === "bluesky") tasks.push(run("Bluesky", `@${t.handle}`, () => fromBluesky(t.handle)));
+    else if (t.kind === "mastodon") tasks.push(run("Mastodon", `@${t.handle}@${t.instance}`, () => fromMastodon(t.instance, t.handle)));
+    else if (t.kind === "x") tasks.push(run("X", `@${t.handle}`, () => fromX(t.handle)));
+    else if (t.kind === "page" && pages < 6) {
       pages++;
-      tasks.push(fromPage(t.url, t.label));
+      tasks.push(run(t.label || "Page", t.url, () => fromPage(t.url, t.label)));
     }
   }
-  if (name) tasks.push(fromCommons(name));
+  if (name) tasks.push(run("Wikimedia Commons", name, () => fromCommons(name)));
 
   const settled = await Promise.allSettled(tasks);
   const images = [];
+  if (authorImage && /^https?:\/\//.test(authorImage)) {
+    images.push({ url: authorImage, sourceUrl: authorUrl || authorImage, source: "Article byline", date: null, kind: "avatar", caption: "Byline photo on the article" });
+    attempts.push({ source: "Article byline", target: authorImage, ok: true, count: 1 });
+  }
   for (const s of settled) if (s.status === "fulfilled" && Array.isArray(s.value)) images.push(...s.value);
 
   const handles = [...targets.values()].filter((t) => t.kind !== "page").map(({ kind, handle, instance, url }) => ({ kind, handle, instance, url }));
-  return { images: sortNewest(dedupe(images)).slice(0, MAX_IMAGES), handles };
+  return { images: sortNewest(dedupe(images)).slice(0, MAX_IMAGES), handles, attempts };
+}
+
+/** Best single headshot for the header: a profile photo or page image beats a post photo. */
+export function pickHeadshot(images) {
+  const rank = { avatar: 0, photo: 1, post: 2 };
+  return [...(images || [])].sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3))[0] || null;
 }
 
 // ------------------------------------------------------------ recent posts

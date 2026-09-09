@@ -98,6 +98,8 @@ function articleFromCtx() {
     url: ctx.url || "",
     excerpt: ctx.excerpt || "",
     publishedAt: ctx.publishedAt || null,
+    authorUrl: ctx.authorUrl || null,
+    authorImage: ctx.authorImage || null,
   };
 }
 
@@ -170,6 +172,20 @@ function safeUrl(u) {
   }
 }
 
+function attemptsNote(attempts, open = false) {
+  if (!attempts?.length) return el("p", { class: "muted small", text: "Nothing to try: no author page or social profile was found in the sources." });
+  const lines = attempts.map((a) => {
+    const what = a.target && a.target !== a.source ? `${a.source} (${a.target.length > 48 ? a.target.slice(0, 45) + "…" : a.target})` : a.source;
+    return `${what}: ${a.ok ? (a.count ? `${a.count} image${a.count === 1 ? "" : "s"}` : "no image on page") : `failed, ${a.error || "unknown error"}`}`;
+  });
+  return el(
+    "details",
+    { class: "attempts", open: open ? "" : null },
+    el("summary", { class: "muted small", text: `Photo sources tried (${attempts.length})` }),
+    el("ul", { class: "muted small" }, ...lines.map((l) => el("li", { text: l })))
+  );
+}
+
 function render(entry, fromCache) {
   const p = entry.profile || {};
   const meta = entry.meta || {};
@@ -178,8 +194,10 @@ function render(entry, fromCache) {
   const root = $("profile");
   root.replaceChildren();
 
-  // hero
-  const photo = wiki?.thumbnail || (p.images || []).map((i) => safeUrl(i.url)).find(Boolean) || null;
+  // hero: a collected headshot first, then Wikipedia, then anything the model saw
+  const rank = { avatar: 0, photo: 1, post: 2 };
+  const headshot = [...(meta.images || [])].sort((a, b) => (rank[a.kind] ?? 3) - (rank[b.kind] ?? 3)).map((i) => safeUrl(i.url)).find(Boolean);
+  const photo = headshot || wiki?.thumbnail || (p.images || []).map((i) => safeUrl(i.url)).find(Boolean) || null;
   const img = photo
     ? el("img", { src: photo, alt: "", referrerpolicy: "no-referrer" })
     : el("div", { class: "ph", text: initials(p.name || ctx.author) });
@@ -326,7 +344,15 @@ function render(entry, fromCache) {
     root.append(
       section("Recent photos", photos.length, [
         grid,
-        el("p", { class: "muted small", text: handles.length ? `From ${handles.join(", ")} and open sources, newest first.` : "From the author's public pages and open sources, newest first. Add a social profile link to see their latest posts." }),
+        el("p", { class: "muted small", text: handles.length ? `From ${handles.join(", ")} and open sources, newest first.` : "From the author's public pages and open sources, newest first." }),
+        attemptsNote(meta.photoAttempts),
+      ], true)
+    );
+  } else if (Array.isArray(meta.images)) {
+    root.append(
+      section("Recent photos", null, [
+        el("p", { class: "muted", text: "No photos found." }),
+        attemptsNote(meta.photoAttempts, true),
       ], true)
     );
   }

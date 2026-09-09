@@ -138,3 +138,7 @@ details.sec li { margin: 0 0 8px; }
 .caveats ul { margin: 4px 0 0; padding-left: 18px; }
 .disclaimer { font-size: 11.5px; color: var(--muted); margin-top: 16px; line-height: 1.45; }
 .questions li { margin-bottom: 6px; }
+.attempts { margin-top: 6px; }
+.attempts summary { cursor: pointer; }
+.attempts ul { margin: 4px 0 0; padding-left: 16px; }
+.attempts li { margin: 2px 0; word-break: break-all; }
