@@ -1,4 +1,4 @@
-import { MSG, SUGGESTED_MODELS, SUGGESTED_SEARCH_MODELS } from "../shared/constants.js";
+import { MSG, SUGGESTED_MODELS, SUGGESTED_SEARCH_MODELS, PIPELINE_VERSION } from "../shared/constants.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 import { getBuildInfo, formatBuildInfo } from "../shared/version.js";
 
@@ -51,6 +51,7 @@ async function load() {
   $("searchModel").value = s.searchModel || "";
   $("maxSearches").value = s.maxSearches;
   $("resultsPerSearch").value = s.resultsPerSearch;
+  $("corpusSize").value = s.corpusSize;
   $("cacheDays").value = s.cacheDays;
   $("showBadge").checked = s.showBadge;
   $("autoAnalyze").checked = s.autoAnalyze;
@@ -132,6 +133,7 @@ $("save").addEventListener("click", async () => {
     searchModel: $("searchModel").value.trim(),
     maxSearches: Math.max(1, Math.min(12, parseInt($("maxSearches").value, 10) || 6)),
     resultsPerSearch: Math.max(1, Math.min(10, parseInt($("resultsPerSearch").value, 10) || 5)),
+    corpusSize: Math.max(0, Math.min(15, parseInt($("corpusSize").value, 10) ?? 8)),
     cacheDays: Math.max(0, Math.min(365, parseInt($("cacheDays").value, 10) || 0)),
     showBadge: $("showBadge").checked,
     autoAnalyze: $("autoAnalyze").checked,
@@ -148,9 +150,23 @@ $("clearCache").addEventListener("click", async () => {
 
 load();
 getBuildInfo()
-  .then((info) => {
+  .then(async (info) => {
     $("build").textContent = formatBuildInfo(info);
     if (info.hash) $("build").title = `commit ${info.hash}`;
+    let running = 0;
+    try {
+      running = (await chrome.runtime.sendMessage({ type: MSG.VERSION }))?.pipeline || 0;
+    } catch {
+      running = 0;
+    }
+    if (running < PIPELINE_VERSION) {
+      const w = document.createElement("p");
+      w.className = "status bad";
+      w.textContent = `Files on disk are pipeline v${PIPELINE_VERSION} but the background worker is running v${running || "?"}. Reload the extension on chrome://extensions.`;
+      $("build").after(w);
+    } else {
+      $("build").textContent += ` · worker v${running}`;
+    }
   })
   .catch(() => {
     $("build").textContent = `v${chrome.runtime.getManifest().version}`;

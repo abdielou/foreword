@@ -1,6 +1,10 @@
 // Shared constants for Foreword. Imported by the service worker,
 // panel, popup and options pages (all ES modules).
 
+// Bumped whenever the research pipeline changes shape. The panel compares the
+// worker's live value with its own so a stale background worker is caught.
+export const PIPELINE_VERSION = 3;
+
 export const STORAGE_KEYS = {
   settings: "settings",
   cachePrefix: "profile:",
@@ -21,6 +25,7 @@ export const DEFAULT_SETTINGS = {
   searchModel: "openai/gpt-4o-mini",
   maxSearches: 8,
   resultsPerSearch: 5,
+  corpusSize: 8,
   cacheDays: 14,
   autoAnalyze: false,
   showBadge: true,
@@ -38,6 +43,7 @@ export const MSG = {
   CLEAR_CACHE: "al:clear-cache",     // options -> worker
   TEST_KEY: "al:test-key",           // options -> worker
   LIST_MODELS: "al:list-models",     // options -> worker
+  VERSION: "al:version",             // panel/options -> worker: which pipeline is the worker running
   PORT_NAME: "al:analysis",
 };
 

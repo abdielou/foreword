@@ -1,4 +1,4 @@
-import { MSG } from "../shared/constants.js";
+import { MSG, PIPELINE_VERSION } from "../shared/constants.js";
 import {
   getSettings,
   getCachedProfile,
@@ -9,6 +9,7 @@ import {
 import { researchAuthor, testApiKey, listModels, ApiError } from "./openrouter.js";
 import { lookupWikipedia } from "./wikipedia.js";
 import { collectImages, fetchSocialPosts } from "./images.js";
+import { collectArticles } from "./articles.js";
 
 // ---------- per-tab detection state ----------
 // Kept in session storage so it survives worker restarts.
@@ -93,6 +94,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return await testApiKey(msg.apiKey);
       case MSG.LIST_MODELS:
         return { ok: true, models: await listModels() };
+      case MSG.VERSION:
+        return { ok: true, pipeline: PIPELINE_VERSION };
       default:
         return { ok: false, error: "unknown message" };
     }
@@ -157,16 +160,25 @@ chrome.runtime.onConnect.addListener((port) => {
             send({ type: "status", stage: "searching", text: `Searching: ${e.query}`, searches: e.searches });
           } else if (e.kind === "gathered") {
             send({ type: "status", stage: "searching", text: `${e.count} sources found.` });
-          } else if (e.kind === "social") {
-            send({ type: "status", stage: "searching", text: "Reading recent social posts…" });
-          } else if (e.kind === "social-done") {
-            send({ type: "status", stage: "writing", text: e.accounts ? `${e.posts} recent posts from ${e.accounts} account${e.accounts === 1 ? "" : "s"}. Writing the profile…` : "No open social accounts found. Writing the profile…" });
+          } else if (e.kind === "reading") {
+            send({ type: "status", stage: "reading", text: "Reading the author's articles, posts, and other outlets' headlines…" });
+          } else if (e.kind === "read") {
+            const bits = [];
+            bits.push(`${e.articles} article${e.articles === 1 ? "" : "s"} read`);
+            if (e.posts) bits.push(`${e.posts} posts from ${e.accounts} account${e.accounts === 1 ? "" : "s"}`);
+            if (e.coverage) bits.push(`${e.coverage} other headlines`);
+            send({ type: "status", stage: "reading", text: bits.join(", ") + "." });
+          } else if (e.kind === "analyzing") {
+            send({ type: "status", stage: "analyzing", text: "Auditing this article, comparing headlines, reading the body of work…" });
+          } else if (e.kind === "analyzed") {
+            const done = [e.framing && "article audit", e.comparison && "headline comparison", e.corpus && "corpus analysis"].filter(Boolean);
+            send({ type: "status", stage: "analyzing", text: done.length ? `Done: ${done.join(", ")}. Building the dashboard…` : "Analyses skipped for lack of material. Building the dashboard…" });
           } else if (e.kind === "writing" && e.chars) {
             send({ type: "status", stage: "writing", text: `Writing the profile… (${Math.round(e.chars / 100) / 10}k characters)` });
           }
         },
         controller.signal,
-        fetchSocialPosts
+        { fetchSocial: fetchSocialPosts, collectArticles }
       );
 
       send({ type: "status", stage: "enriching", text: "Looking up Wikipedia…" });

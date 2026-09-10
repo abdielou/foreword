@@ -8,14 +8,15 @@ When two people talk face to face, each knows where the other is coming from and
 
 Open an article, click the "Who is …?" badge, and a side panel shows:
 
-- **Bottom line.** One or two sentences on who this is and the angle they usually bring.
-- **Leaning.** Political, social and economic position on five-step meters. Each carries a confidence tag, the single strongest reason in under twenty words, and links to its sources. When the record is thin the meter reads "Not enough evidence" instead of guessing.
-- **Style.** Two more meters: how much of the author's output is reporting versus opinion, and whether they read events through one lens or engage many perspectives. Judged from previous pieces and posts.
+- **Bottom line.** At most 40 words on what this author's output shows and what it means for this piece. Under it, the **self-portrait**: how the author or employer describes them, shown only so you can see the gap.
+- **This article.** An audit of the piece you are about to read: the net slant and who it favors or disfavors, three to eight findings each anchored to a quote (agent framing, salience, loaded language, sourcing, omission, insinuation, juxtaposition, headline-body gap), each tagged with its locus so you can tell an editor's headline from the author's body text, an explicit **symmetry test** (would this framing appear with the actor's politics or affiliation flipped?), the voices the article relies on, and what a fair treatment would include. Then the **headline comparison**: how other outlets headlined the same event, with this article highlighted and a verdict of outlier, leans one way, or in line.
+- **Leaning, from output.** Political, social and economic position on five-step meters, each with a confidence tag, its basis (articles, posts, both, or self-description only), the strongest reason, and source links. Below the meters, the **treatment ledger**: how the author treats each subject that recurs across their articles, from favorable to hostile, with evidence.
+- **Style, from articles.** Reporting versus advocacy, and one lens versus many perspectives, followed by the recurring **patterns** found in the body of work, each with quoted examples.
 - **Watch for.** Three short things to keep in mind for this specific article.
-- **Evidence.** The strongest quotes from the author's own posts and interviews, plus one-line summaries of past articles and public records, each linked.
-- **Previous pieces.** Recent work by the author, tagged reporting, analysis or opinion.
-- **Photos.** A strip of recent images from social profiles, author pages, Wikimedia and image search, newest and most likely first.
-- **More.** Career, education, affiliations, profile links and every source, folded away.
+- **Evidence.** The strongest quotes from the author's own posts, articles and interviews, each linked.
+- **Previous pieces.** Recent work, tagged reporting, analysis or opinion, with the ones read in full marked.
+- **Photos.** A strip of recent images from social profiles, author pages, Wikimedia and image search.
+- **More.** Career, education, affiliations, profile links, every source, and which articles were fetched.
 
 The scales:
 
@@ -27,17 +28,21 @@ The scales:
 | Opinion | Reporting | Advocacy (share of output that argues rather than reports) |
 | Lens | Many perspectives | Single lens (engages opposing views, or reads everything through one frame) |
 
-Confidence is high, medium or low. The author's own social posts weigh most for leaning, and their past articles weigh most for style. Everything covers only public and professional information, and every judgment carries its evidence. Treat it as a lens on the author, not a verdict on the article.
+### The stance
+
+Every prompt shares one posture, written for an auditor rather than a summarizer: every choice in a text is a choice someone made, and the author answers for its effect on the reader whatever the motive. A benign explanation (house style, deadline, click optimization) never cancels a finding; it sits beside it. Absence of evidence is not neutrality, so thin material reads "insufficient", never "balanced". Self-description carries no weight: bios, author pages and employer blurbs describe how the author wants to be seen, so leaning and style come only from output, the author's articles and posts. A meter can show a position only when it rests on articles or posts; with nothing but a bio it reads "Only self-description found". And every finding must rest on an exact quote, because suspicion is not sloppiness.
+
+Everything covers only public and professional information. Treat it as a lens on the author, not a verdict on the article.
 
 ## How it works
 
-1. **Read the page.** A content script finds the byline (JSON-LD, then meta tags, then common byline markup), the publication, the headline, the opening paragraphs, and the byline's own link and photo when present.
-2. **Search.** The background worker runs templated web searches through OpenRouter's web plugin on a cheap relay model: name plus outlet, the author's other pieces on the same site, social profiles, opinion columns, bio, the article's topic, Wikipedia, interviews, affiliations, education. Every result becomes a numbered source.
-3. **Read their posts.** If the results include the author's X, Bluesky or Mastodon profile, the account bio and recent public posts are fetched directly, no key needed, and added as citable sources. The writing model is told to confirm each account belongs to the author before relying on it.
-4. **Write the dashboard.** The writing model of your choice, through OpenRouter, reads the article context and every source and returns structured JSON: a position, confidence, reason and sources for each meter, three watch-fors, quoted evidence, and previous pieces. Only provided sources can be cited. Models without structured-output support get a prompt-only JSON request instead.
-5. **Look up Wikipedia.** A photo and description when the author has an article.
-6. **Collect photos.** In parallel: the byline photo and author page from the article itself, Bluesky and Mastodon public APIs (avatars and recent image posts with dates), X's public syndication timeline, Wikimedia Commons and Wikidata, DuckDuckGo and Bing image search for the author's name and publication, and a scrape of every page found in step 2. Page images are scored on filename, alt text and surrounding markup so headshots outrank logos, icons and stock art. Duplicates are collapsed across sizes.
-7. **Cache.** Profiles are stored locally for 14 days by default, so reopening an article is free. Profiles built before the photo collector existed get photos added on open at no cost; profiles built before the dashboard show a "Rebuild it" notice, and rebuilding costs one run.
+1. **Read the page.** A content script captures the byline (JSON-LD, then meta tags, then byline markup), the publication, the headline and subhead, the full body text, the text of related links and sidebars shown inside the article, and the byline's own link and photo when present.
+2. **Search.** The background worker runs templated web searches through OpenRouter's web plugin on a cheap relay model: the author's other pieces on the same site, name plus outlet, social profiles, opinion columns, bio, the article's topic, Wikipedia, interviews, affiliations, education. Every result becomes a numbered source.
+3. **Read the author, in parallel.** Three things happen at once, none needing a key: the author's other articles are fetched in full (from the author page and the same-site search results, up to eight by default, byline checked), their X, Bluesky or Mastodon bio and recent posts are fetched when a profile surfaced, and other outlets' coverage of the same event is searched.
+4. **Analyze, in parallel.** The writing model runs three structured calls: an audit of this article's text, a comparison of its headline against the field, and an analysis of the body of work that yields patterns with quotes, the treatment ledger, and the leaning and style the output reveals.
+5. **Build the dashboard.** A final call weighs the three analyses and the posts first, interviews and records second, and bios last, and returns the placements, watch-fors, evidence and previous pieces as structured JSON. Only provided sources can be cited. Models without structured-output support get a prompt-only JSON request instead.
+6. **Photos.** The byline photo and author page from the article itself, Bluesky and Mastodon public APIs, X's public syndication timeline, Wikimedia Commons and Wikidata, DuckDuckGo and Bing image search, and a scrape of every page found in step 2, scored so headshots outrank logos and stock art.
+7. **Cache.** Profiles are stored locally for 14 days by default. Profiles built by an earlier pipeline show a "Rebuild it" notice.
 
 The panel is an extension page rendered in an iframe, so site styles and content security policies cannot interfere with it.
 
@@ -69,6 +74,7 @@ Run `scripts\pull.ps1` (or `scripts\pull.bat`) from the checkout, or `git pull` 
 - **Writing model**: any OpenRouter model id. The field suggests the live model list with pricing, and the "Newest from…" menu fills in the latest structured-output-capable model from any provider.
 - **Search relay model**: a cheap model that only carries web search results.
 - **Web searches per profile** and **results per search**: the cost and depth of research.
+- **Author's articles to read in full**: how many previous pieces feed the body-of-work analysis (default 8, 0 to skip).
 - **Keep cached profiles for**: days before a profile is rebuilt.
 - **Badge**, **auto-build on every article** (spends credit on each page), and **panel side**.
 - **Clear cached profiles**.
@@ -76,8 +82,8 @@ Run `scripts\pull.ps1` (or `scripts\pull.bat`) from the checkout, or `git pull` 
 ## Cost and privacy
 
 - Your OpenRouter key lives in Chrome's extension storage and is sent only to `openrouter.ai`.
-- A new profile is a handful of small search requests plus one writing request. OpenRouter's web plugin charges about $0.004 per search result, so the default eight searches of five results cost around $0.16, plus the writing model's tokens. Cached profiles cost nothing to reopen.
-- What leaves the browser: the author's name, the publication, the article title and URL, the article's first paragraphs, the search results, and the author's recent public posts, all sent to OpenRouter. The photo and post collectors fetch public pages and APIs directly, with no key and nothing sent to a model. That is why the extension asks for access to all sites.
+- A new profile is nine small search requests (eight for the author, one for the event) plus four writing-model calls: the article audit, the headline comparison, the body-of-work analysis, and the dashboard. OpenRouter's web plugin charges about $0.004 per search result, so searches cost around $0.18; the writing calls depend on the model and on how many articles are read, roughly 2,000 input tokens per article. Cached profiles cost nothing to reopen.
+- What leaves the browser: the author's name, the publication, the article's headline, subhead, body text and related-link text, the search results, the full text of the author's other articles, and the author's recent public posts, all sent to OpenRouter. The photo and post collectors fetch public pages and APIs directly, with no key and nothing sent to a model. That is why the extension asks for access to all sites.
 - Nothing runs until you click the badge or the popup, unless you turn on auto-build in options.
 
 ## Layout
@@ -85,8 +91,9 @@ Run `scripts\pull.ps1` (or `scripts\pull.bat`) from the checkout, or `git pull` 
 ```
 manifest.json
 src/background/service-worker.js   message routing, per-tab state, caching, photo enrichment, keepalive
-src/background/openrouter.js       OpenRouter client: gather searches, fetch posts, structured synthesis
-src/background/prompt.js           system prompt, dashboard JSON schema, search query templates
+src/background/openrouter.js       OpenRouter client and the pipeline: search, read, three analyses, dashboard
+src/background/prompt.js           auditor stance, the four schemas and prompts, search query templates
+src/background/articles.js         finds and extracts the author's other articles
 src/background/images.js           recent posts and photos: Bluesky, Mastodon, X, Commons, Wikidata, image search, page scraping
 src/background/wikipedia.js        photo and description lookup
 src/content/content.js             byline detection, badge, panel iframe
@@ -102,6 +109,8 @@ scripts/pull.ps1, pull.bat         pull the latest commit into a local checkout
 
 - Instagram, Threads, LinkedIn and Facebook are closed without login, so those appear only as links. The X syndication and image search endpoints are unofficial and may rate limit or change; failures show under "Photo sources tried", and the panel links out to Google, DuckDuckGo and Bing image search as a manual route.
 - Photo matching is heuristic. A photo of someone else can slip in, especially for common names, which is why each image links to the page it came from.
-- Only social accounts that surface in the search results feed the writing step. If an author's account never appears in a search, their posts are not read.
+- Only social accounts that surface in the search results feed the analysis. If an author's account never appears in a search, their posts are not read. Pseudonymous accounts cannot be found at all.
+- The body-of-work analysis depends on fetching the author's articles. Paywalled or bot-blocked sites yield few or none, and the dashboard says so; the ledger and patterns then rest on whatever was readable.
+- The headline comparison depends on the event search finding other outlets' coverage. Very local or very fresh stories may have none yet.
 - Byline detection is heuristic. Sites that render bylines late or use unusual markup may need the name typed in the popup.
 - A model researching the open web can still confuse people who share a name. The panel flags identity confidence and lists caveats; follow the sources for anything that matters.

@@ -10,7 +10,24 @@
 //   2. synthesize - the main model reads the article context plus every
 //                 gathered source and writes the structured profile.
 
-import { PROFILE_SCHEMA, SYSTEM_PROMPT, buildUserMessage, buildQueries } from "./prompt.js";
+import {
+  PROFILE_SCHEMA,
+  FRAMING_SCHEMA,
+  COMPARISON_SCHEMA,
+  CORPUS_SCHEMA,
+  buildUserMessage,
+  buildQueries,
+  eventQuery,
+  domainOf,
+  framingSystemPrompt,
+  framingUserMessage,
+  comparisonSystemPrompt,
+  comparisonUserMessage,
+  corpusSystemPrompt,
+  corpusUserMessage,
+  dashboardSystemPrompt,
+} from "./prompt.js";
+import { PIPELINE_VERSION } from "../shared/constants.js";
 
 const BASE_URL = "https://openrouter.ai/api/v1";
 const APP_HEADERS = {
@@ -230,131 +247,170 @@ async function gatherSources(settings, article, onProgress, signal) {
   return { sources, queries, failures };
 }
 
-// --------------------------------------------------------------- synthesize
-function responseFormat() {
-  return {
-    type: "json_schema",
-    json_schema: { name: "author_profile", strict: true, schema: PROFILE_SCHEMA },
-  };
+// ------------------------------------------------------- structured calls
+function responseFormat(name, schema) {
+  return { type: "json_schema", json_schema: { name, strict: true, schema } };
 }
 
-async function synthesize(settings, article, sources, accounts, onProgress, signal) {
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: buildUserMessage(article, sources, accounts) },
-  ];
+/**
+ * One structured call on the writing model. Tries response_format first; a
+ * model that rejects it gets the schema in the prompt instead.
+ */
+async function complete(settings, { name, schema, system, user, maxTokens = 6000, onProgress, signal }) {
   const base = {
     model: settings.model,
-    messages,
     stream: true,
-    max_tokens: 8000,
+    max_tokens: maxTokens,
     temperature: 0.2,
   };
-
   let res;
   let structured = true;
   try {
-    res = await post("/chat/completions", { ...base, response_format: responseFormat() }, settings.apiKey, signal);
+    res = await post("/chat/completions", { ...base, messages: [{ role: "system", content: system }, { role: "user", content: user }], response_format: responseFormat(name, schema) }, settings.apiKey, signal);
   } catch (e) {
-    // Models without structured-output support reject response_format; fall back to a prompt-only JSON request.
     if (e instanceof ApiError && e.status === 400) {
       structured = false;
-      const fallbackMessages = [
-        messages[0],
-        {
-          role: "user",
-          content:
-            messages[1].content +
-            "\n\nRespond with a single JSON object and nothing else. It must match this JSON schema exactly:\n" +
-            JSON.stringify(PROFILE_SCHEMA),
-        },
-      ];
-      res = await post("/chat/completions", { ...base, messages: fallbackMessages }, settings.apiKey, signal);
+      const fallback = user + "\n\nRespond with a single JSON object and nothing else. It must match this JSON schema exactly:\n" + JSON.stringify(schema);
+      res = await post("/chat/completions", { ...base, messages: [{ role: "system", content: system }, { role: "user", content: fallback }] }, settings.apiKey, signal);
     } else {
       throw e;
     }
   }
+  const out = await readStream(res, (chunk) => onProgress?.(chunk.length));
+  if (out.finishReason === "length") throw new ApiError(`The ${name} response was cut off. Try again or pick a model with a larger output limit.`, { retryable: true });
+  if (out.finishReason === "content_filter") throw new ApiError(`The model declined the ${name} step.`);
+  const json = extractJson(out.text);
+  if (!json) throw new ApiError(`The model returned no usable ${name} result. Try again or pick a different model.`, { retryable: true });
+  return { json, usage: out.usage, model: out.model || settings.model, structured };
+}
 
-  onProgress?.({ kind: "writing" });
-  let chars = 0;
-  const out = await readStream(res, (chunk) => {
-    chars += chunk.length;
-    if (chars % 400 < chunk.length) onProgress?.({ kind: "writing", chars });
-  });
-
-  if (out.finishReason === "length") {
-    throw new ApiError("The response was cut off before the profile was complete. Try again or pick a model with a larger output limit.", { retryable: true });
-  }
-  if (out.finishReason === "content_filter") {
-    throw new ApiError("The model declined to profile this author.");
-  }
-  const profile = extractJson(out.text);
-  if (!profile) {
-    throw new ApiError("The model returned no usable profile. Try again or pick a different model.", { retryable: true });
-  }
-  return { profile, usage: out.usage, model: out.model || settings.model, structured };
+// ------------------------------------------------------------- comparison
+async function searchEvent(settings, article, signal) {
+  const q = eventQuery(article);
+  if (!q) return { query: "", items: [] };
+  const own = domainOf(article.url);
+  const { results } = await runSearch({ ...settings, resultsPerSearch: Math.max(6, Number(settings.resultsPerSearch) || 5) }, q, signal);
+  const items = results
+    .filter((r) => domainOf(r.url) && domainOf(r.url) !== own)
+    .map((r) => ({ title: r.title, url: r.url, outlet: domainOf(r.url), content: r.content }))
+    .slice(0, 10);
+  return { query: q, items };
 }
 
 // ------------------------------------------------------------------ public
 /**
- * @param {(urls: string[]) => Promise<{accounts: object[], posts: object[]}>} [fetchSocial]
- *   Optional: given the gathered source URLs, returns social accounts and recent posts,
- *   which become citable sources for the writing model.
+ * @param {object} hooks
+ * @param {(urls: string[]) => Promise<{accounts, posts}>} [hooks.fetchSocial]
+ * @param {(input: {author, articleUrl, authorUrl, sourceUrls, limit}) => Promise<{articles, attempts}>} [hooks.collectArticles]
  */
-export async function researchAuthor(settings, article, onProgress, signal, fetchSocial) {
-  if (!settings.apiKey) {
-    throw new ApiError("No OpenRouter API key set. Open Foreword options to add one.", { status: 0 });
-  }
-  if (!settings.model) {
-    throw new ApiError("No model selected. Open Foreword options to choose one.", { status: 0 });
-  }
+export async function researchAuthor(settings, article, onProgress, signal, hooks = {}) {
+  if (!settings.apiKey) throw new ApiError("No OpenRouter API key set. Open Foreword options to add one.", { status: 0 });
+  if (!settings.model) throw new ApiError("No model selected. Open Foreword options to choose one.", { status: 0 });
 
+  const usage = { calls: 0, tokens: 0 };
+  const track = (r) => {
+    usage.calls++;
+    usage.tokens += r?.usage?.total_tokens || 0;
+    return r;
+  };
+  const label = { x: "X", bluesky: "Bluesky", mastodon: "Mastodon" };
+
+  // 1. Web search for sources.
   const { sources, queries, failures } = await gatherSources(settings, article, onProgress, signal);
   onProgress?.({ kind: "gathered", count: sources.length, searches: queries.length });
+  const sourceUrls = sources.map((s) => s.url);
 
-  // Recent posts from social accounts that surfaced in the search results.
-  let accounts = [];
-  const label = { x: "X", bluesky: "Bluesky", mastodon: "Mastodon" };
-  if (fetchSocial) {
-    try {
-      onProgress?.({ kind: "social" });
-      const r = await fetchSocial(sources.map((s) => s.url));
-      accounts = r?.accounts || [];
-      for (const post of (r?.posts || []).slice(0, 80)) {
-        const a = accounts[post.account] || {};
-        sources.push({
-          id: `s${sources.length + 1}`,
-          title: `${label[a.kind] || "Post"} post by @${a.handle || "?"}${post.date ? ` (${post.date.slice(0, 10)})` : ""}`,
-          url: post.url,
-          content: post.text,
-          queries: [],
-        });
-      }
-      onProgress?.({ kind: "social-done", accounts: accounts.length, posts: (r?.posts || []).length });
-    } catch {
-      accounts = [];
-    }
+  // 2. In parallel: the author's posts, the author's other articles, other outlets' headlines.
+  onProgress?.({ kind: "reading" });
+  const [socialR, articlesR, eventR] = await Promise.allSettled([
+    hooks.fetchSocial ? hooks.fetchSocial(sourceUrls) : Promise.resolve({ accounts: [], posts: [] }),
+    hooks.collectArticles
+      ? hooks.collectArticles({ author: article.author, articleUrl: article.url, authorUrl: article.authorUrl, sourceUrls, limit: Math.max(0, Math.min(15, Number(settings.corpusSize) || 8)) })
+      : Promise.resolve({ articles: [], attempts: [] }),
+    article.title ? searchEvent(settings, article, signal) : Promise.resolve({ query: "", items: [] }),
+  ]);
+  const social = socialR.status === "fulfilled" ? socialR.value : { accounts: [], posts: [] };
+  const corpus = articlesR.status === "fulfilled" ? articlesR.value : { articles: [], attempts: [{ source: "Articles", target: "", ok: false, count: 0, error: articlesR.reason?.message || "failed" }] };
+  const event = eventR.status === "fulfilled" ? eventR.value : { query: "", items: [] };
+  const accounts = social.accounts || [];
+  for (const post of (social.posts || []).slice(0, 80)) {
+    const a = accounts[post.account] || {};
+    sources.push({ id: `s${sources.length + 1}`, title: `${label[a.kind] || "Post"} post by @${a.handle || "?"}${post.date ? ` (${post.date.slice(0, 10)})` : ""}`, url: post.url, content: post.text, queries: [] });
   }
+  onProgress?.({ kind: "read", accounts: accounts.length, posts: (social.posts || []).length, articles: corpus.articles.length, coverage: event.items.length });
 
-  const { profile, usage, model, structured } = await synthesize(settings, article, sources, accounts, onProgress, signal);
+  // 3. In parallel: audit this article, compare its headline, analyze the corpus.
+  onProgress?.({ kind: "analyzing" });
+  const [framingR, comparisonR, corpusR] = await Promise.allSettled([
+    article.fullText && article.fullText.length > 300
+      ? complete(settings, { name: "framing_audit", schema: FRAMING_SCHEMA, system: framingSystemPrompt(), user: framingUserMessage(article), maxTokens: 3000, signal }).then(track)
+      : Promise.reject(new Error("article text not captured")),
+    event.items.length >= 2
+      ? complete(settings, { name: "headline_comparison", schema: COMPARISON_SCHEMA, system: comparisonSystemPrompt(), user: comparisonUserMessage(article, event.items), maxTokens: 2500, signal }).then(track)
+      : Promise.reject(new Error(event.query ? `only ${event.items.length} other items found` : "no headline to compare")),
+    corpus.articles.length >= 2
+      ? complete(settings, { name: "corpus_analysis", schema: CORPUS_SCHEMA, system: corpusSystemPrompt(), user: corpusUserMessage(article, corpus.articles), maxTokens: 5000, signal }).then(track)
+      : Promise.reject(new Error(corpus.articles.length ? "only one article could be read" : "no articles could be read")),
+  ]);
+  const pick = (r) => (r.status === "fulfilled" ? r.value.json : null);
+  const why = (r) => (r.status === "rejected" ? (r.reason?.message || String(r.reason)).slice(0, 120) : null);
+  const analyses = {
+    framing: pick(framingR),
+    comparison: pick(comparisonR),
+    corpus: pick(corpusR),
+    articles: corpus.articles.map(({ id, title, url, date }) => ({ id, title, url, date })),
+  };
+  onProgress?.({ kind: "analyzed", framing: Boolean(analyses.framing), comparison: Boolean(analyses.comparison), corpus: Boolean(analyses.corpus) });
 
-  // Keep the model honest: only sources we actually provided can be cited.
-  const known = new Map(sources.map((s) => [s.id, s]));
+  // 4. The dashboard.
+  onProgress?.({ kind: "writing" });
+  let chars = 0;
+  const dash = track(
+    await complete(settings, {
+      name: "author_dashboard",
+      schema: PROFILE_SCHEMA,
+      system: dashboardSystemPrompt(),
+      user: buildUserMessage(article, sources, accounts, analyses),
+      maxTokens: 8000,
+      signal,
+      onProgress: (n) => {
+        chars += n;
+        if (chars % 400 < n) onProgress?.({ kind: "writing", chars });
+      },
+    })
+  );
+  const profile = dash.json;
+
+  // Only sources we actually provided can be cited.
+  const known = new Set([...sources.map((s) => s.id), ...corpus.articles.map((a) => a.id)]);
   profile.sources = (profile.sources || []).filter((s) => known.has(s.id) || /^https?:\/\//.test(s.url || ""));
+  // Articles read in full are citable even if the model forgot to list them.
+  for (const a of corpus.articles) {
+    if (!profile.sources.some((s) => s.id === a.id)) profile.sources.push({ id: a.id, title: a.title || a.url, url: a.url, publisher: article.publication || null, date: a.date || null });
+  }
 
   return {
     profile,
     meta: {
-      model,
+      model: dash.model,
       requestedModel: settings.model,
       searchModel: settings.searchModel || settings.model,
       searches: queries.length,
       searchFailures: failures,
       sourceCount: sources.length,
+      structuredOutput: dash.structured,
+      usage,
       accounts,
-      structuredOutput: structured,
-      usage: usage || null,
+      analyses: {
+        framing: analyses.framing,
+        comparison: analyses.comparison ? { ...analyses.comparison, query: event.query } : null,
+        corpus: analyses.corpus,
+        skipped: { framing: why(framingR), comparison: why(comparisonR), corpus: why(corpusR) },
+      },
+      articles: analyses.articles,
+      articleAttempts: corpus.attempts || [],
       generatedAt: Date.now(),
+      schemaVersion: PIPELINE_VERSION,
     },
   };
 }

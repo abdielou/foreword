@@ -233,6 +233,56 @@
     );
   }
 
+  const MAX_FULL_TEXT = 14000;
+
+  function articleRoot() {
+    return (
+      document.querySelector("article") ||
+      document.querySelector('[itemprop="articleBody"]') ||
+      document.querySelector("main") ||
+      document.body
+    );
+  }
+
+  // The whole body, for the framing audit. Paragraphs only, junk lines dropped.
+  function fullText() {
+    const root = articleRoot();
+    const paras = Array.from(root.querySelectorAll("p, h2, h3, blockquote, li"))
+      .filter((el) => !el.closest("nav, footer, aside, form, figure, [class*='related' i], [class*='promo' i], [class*='newsletter' i], [class*='share' i]"))
+      .map(text)
+      .filter((t) => t.length > 25 && !/^(advertisement|subscribe|sign up|read more)/i.test(t));
+    let out = "";
+    for (const p of paras) {
+      if (out.length + p.length > MAX_FULL_TEXT) break;
+      out += (out ? "\n\n" : "") + p;
+    }
+    return out;
+  }
+
+  function subhead() {
+    const root = articleRoot();
+    const cand = root.querySelector("h2, [class*='subhead' i], [class*='sub-head' i], [class*='dek' i], [class*='standfirst' i], [class*='summary' i]");
+    const t = cand ? text(cand) : "";
+    if (t && t.length < 300) return t;
+    return meta('meta[property="og:description"]') || meta('meta[name="description"]') || null;
+  }
+
+  // Link and sidebar text shown inside the article: what the reader sees next to the story.
+  function relatedLinks() {
+    const root = articleRoot();
+    const out = [];
+    const seen = new Set();
+    const nodes = root.querySelectorAll("[class*='related' i] a, [class*='read-more' i] a, [class*='readmore' i] a, [class*='promo' i] a, aside a, [data-testid*='related' i] a");
+    for (const a of Array.from(nodes).slice(0, 30)) {
+      const t = text(a);
+      if (t.length < 15 || t.length > 200 || seen.has(t)) continue;
+      seen.add(t);
+      out.push({ text: t, href: a.href || null });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
   function excerpt() {
     const root =
       document.querySelector("article") ||
@@ -283,6 +333,9 @@
       publishedAt: ld.publishedAt || meta('meta[property="article:published_time"]') || null,
       url: location.href.split("#")[0],
       excerpt: excerpt(),
+      fullText: fullText(),
+      subhead: subhead(),
+      relatedLinks: relatedLinks(),
       source,
       isArticle: looksLikeArticle(),
     };
@@ -357,6 +410,9 @@
       title: articleTitle(),
       url: location.href.split("#")[0],
       excerpt: excerpt(),
+      fullText: fullText(),
+      subhead: subhead(),
+      relatedLinks: relatedLinks(),
       publishedAt: null,
     };
   }

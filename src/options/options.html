@@ -51,11 +51,15 @@
           <input id="resultsPerSearch" type="number" min="1" max="10" step="1">
         </div>
         <div>
+          <label for="corpusSize">Author's articles to read in full</label>
+          <input id="corpusSize" type="number" min="0" max="15" step="1">
+        </div>
+        <div>
           <label for="cacheDays">Keep cached profiles for (days)</label>
           <input id="cacheDays" type="number" min="0" max="365" step="1">
         </div>
       </div>
-      <p class="muted small">Each search costs about $0.004 per result on OpenRouter's web plugin (8 searches × 5 results ≈ $0.16), plus the writing model's tokens. Cached profiles are free to reopen.</p>
+      <p class="muted small">Each search costs about $0.004 per result on OpenRouter's web plugin (8 searches × 5 results ≈ $0.16). The writing model then runs four calls: the article audit, the headline comparison, the body-of-work analysis (roughly 2,000 tokens per article read), and the dashboard. Cached profiles are free to reopen.</p>
     </section>
 
     <section>

@@ -20,7 +20,7 @@ input[type="text"], input[type="password"], input[type="number"], select {
 }
 .row { display: flex; gap: 8px; }
 .row input { flex: 1; }
-.grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 16px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .primary { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; }
 .ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
 .ghost:hover { background: var(--chip); }

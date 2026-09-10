@@ -1,4 +1,4 @@
-import { MSG } from "../shared/constants.js";
+import { MSG, PIPELINE_VERSION } from "../shared/constants.js";
 
 // ---------- read article context from the URL hash ----------
 function readContext() {
@@ -100,6 +100,9 @@ function articleFromCtx() {
     publishedAt: ctx.publishedAt || null,
     authorUrl: ctx.authorUrl || null,
     authorImage: ctx.authorImage || null,
+    fullText: ctx.fullText || "",
+    subhead: ctx.subhead || null,
+    relatedLinks: ctx.relatedLinks || [],
   };
 }
 
@@ -162,13 +165,13 @@ function meter(key, data, sourceMap) {
   const known = pos != null && pos >= 0 && data.confidence !== "none";
   const conf = data?.confidence || "none";
   const track = el("div", { class: `track${known ? "" : " unknown"}` }, ...ax.scale.map((_, i) => el("span", { class: `seg${known && i === pos ? " on" : ""}` })));
-  const value = known ? ax.labels[data.position] : "Not enough evidence";
+  const value = known ? ax.labels[data.position] : data?.basis === "self-description-only" ? "Only self-description found" : "Not enough evidence";
   return el(
     "div",
     { class: `meter conf-${conf}` },
     el("div", { class: "meter-head" }, el("span", { class: "meter-title", text: ax.title }), el("span", { class: "meter-value", text: value }), known ? el("span", { class: `conf ${conf}`, text: conf, title: `${conf} confidence` }) : null),
     el("div", { class: "meter-row" }, el("span", { class: "end", text: ax.left }), track, el("span", { class: "end r", text: ax.right })),
-    known && data.why ? el("div", { class: "why" }, data.why, srcLinks(data.sourceIds, sourceMap)) : null
+    known && data.why ? el("div", { class: "why" }, data.why, srcLinks(data.sourceIds, sourceMap), data.basis && data.basis !== "none" ? el("span", { class: "basis-tag", text: ` · from ${data.basis.replace(/-/g, " ")}` }) : null) : null
   );
 }
 
@@ -190,6 +193,92 @@ function evidenceItem(e, sourceMap) {
   );
 }
 
+
+const SEV_RANK = { high: 0, medium: 1, low: 2 };
+
+function framingTile(f, comparison, skipped) {
+  const kids = [];
+  if (f) {
+    const slant = f.slant || {};
+    const dir = [];
+    if (slant.favors?.length) dir.push(el("span", { class: "fav" }, "favors ", el("b", { text: slant.favors.join(", ") })));
+    if (slant.disfavors?.length) dir.push(el("span", { class: "dis" }, "disfavors ", el("b", { text: slant.disfavors.join(", ") })));
+    kids.push(
+      el("div", { class: "slant" },
+        el("span", { class: `strength ${slant.strength || ""}`, text: (slant.strength || "").replace("-", " ") }),
+        el("span", { class: "slant-dir" }, ...dir.flatMap((d, i) => (i ? [" · ", d] : [d]))),
+      ),
+      slant.summary ? el("p", { class: "slant-summary", text: slant.summary }) : null
+    );
+    const findings = [...(f.findings || [])].sort((a, b) => (SEV_RANK[a.severity] ?? 3) - (SEV_RANK[b.severity] ?? 3));
+    if (findings.length) {
+      const LOCUS = { headline: "headline · outlet", subhead: "subhead · outlet", body: "body · author", "related-module": "module · site", "photo-or-caption": "photo · outlet", other: "" };
+      const list = el("ul", { class: "findings" }, ...findings.map((x) => el("li", { class: `sev-${x.severity}` },
+        el("span", { class: "tag", text: (x.type || "").replace(/-/g, " ") }),
+        x.locus && LOCUS[x.locus] ? el("span", { class: "tag locus", text: LOCUS[x.locus] }) : null,
+        el("q", { text: x.quote }),
+        el("div", { class: "effect", text: x.effect })
+      )));
+      const items = [...list.children];
+      items.slice(3).forEach((li) => (li.hidden = true));
+      const more = items.length > 3 ? el("button", { class: "small-btn", text: `Show ${items.length - 3} more` }) : null;
+      more?.addEventListener("click", () => { items.forEach((li) => (li.hidden = false)); more.remove(); });
+      kids.push(list, more);
+    }
+    if (f.symmetryTest) kids.push(el("p", { class: "symmetry" }, el("b", { text: "Symmetry test: " }), f.symmetryTest));
+    if (f.authorVsOutlet) kids.push(el("p", { class: "symmetry" }, el("b", { text: "Author vs outlet: " }), f.authorVsOutlet));
+    const src = f.sourcing || {};
+    if (src.voices?.length) kids.push(el("p", { class: "muted small", text: `Voices: ${src.voices.join("; ")}${src.monoculture === "yes" ? " — one institution's account presented as the account." : src.monoculture === "partly" ? " — mostly one institution's account." : ""}` }));
+    if (f.missing?.length) kids.push(el("p", { class: "muted small" }, el("b", { text: "Missing: " }), f.missing.join(" · ")));
+  } else {
+    kids.push(el("p", { class: "muted small", text: `Article audit skipped: ${skipped?.framing || "no text captured"}.` }));
+  }
+
+  // headline comparison
+  if (comparison) {
+    const own = el("li", { class: "own" }, el("span", { class: "outlet", text: ctx.publication || "this article" }), el("span", { class: "hl", text: ctx.title || "" }));
+    const rows = (comparison.coverage || []).map((c) => el("li", {}, el("span", { class: "outlet", text: c.outlet }), el("a", { class: "hl", href: safeUrl(c.url) || "#", target: "_blank", rel: "noopener", text: c.headline }), c.agent ? el("span", { class: "agent", text: `actor: ${c.agent}` }) : null));
+    kids.push(
+      el("div", { class: "compare" },
+        el("div", { class: "compare-head" }, el("span", { class: `verdict v-${comparison.verdict}`, text: (comparison.verdict || "").replace(/-/g, " ") }), el("span", { class: "muted small", text: comparison.event || "" })),
+        el("ul", { class: "coverage" }, own, ...rows),
+        comparison.note ? el("p", { class: "small", text: comparison.note }) : null
+      )
+    );
+  } else if (skipped?.comparison) {
+    kids.push(el("p", { class: "muted small", text: `Headline comparison skipped: ${skipped.comparison}.` }));
+  }
+  return tile("This article", ...kids);
+}
+
+function ledgerTile(corpus, articlesById, skipped) {
+  if (!corpus) return skipped?.corpus ? el("p", { class: "muted small ledger-skip", text: `Body of work not read: ${skipped.corpus}.` }) : null;
+  const kids = [];
+  const n = corpus.articlesRead || 0;
+  if (corpus.ledger?.length) {
+    kids.push(el("table", { class: "ledger" },
+      el("thead", {}, el("tr", {}, el("th", { text: "Subject" }), el("th", { text: "Treatment" }), el("th", { text: "Evidence" }))),
+      el("tbody", {}, ...corpus.ledger.map((r) => el("tr", {},
+        el("td", { text: r.subject }),
+        el("td", {}, el("span", { class: `treat t-${r.treatment}`, text: r.treatment })),
+        el("td", {}, r.evidence, " ", ...(r.articleIds || []).map((id) => articlesById.get(id) ? el("a", { class: "aid", href: articlesById.get(id).url, target: "_blank", rel: "noopener", title: articlesById.get(id).title || id, text: `[${id}]` }) : el("span", { class: "aid", text: `[${id}]` })))
+      )))
+    ));
+  }
+  if (corpus.storySelection) kids.push(el("p", { class: "small" }, el("b", { text: "What they cover: " }), corpus.storySelection));
+  kids.push(el("p", { class: "muted small", text: `From ${n} article${n === 1 ? "" : "s"} read in full.` }));
+  return el("div", { class: "ledger-wrap" }, ...kids);
+}
+
+function patternsList(corpus, articlesById) {
+  if (!corpus?.patterns?.length) return null;
+  return el("ul", { class: "patterns" }, ...corpus.patterns.map((p) => el("li", {},
+    el("div", { text: p.pattern }),
+    el("div", { class: "muted small", text: p.effect }),
+    ...(p.examples || []).slice(0, 2).map((ex) => el("div", { class: "ex" }, el("q", { text: ex.quote }), " ", articlesById.get(ex.articleId) ? el("a", { class: "aid", href: articlesById.get(ex.articleId).url, target: "_blank", rel: "noopener", text: `[${ex.articleId}]` }) : el("span", { class: "aid", text: `[${ex.articleId}]` })))
+  )));
+}
+
 function render(entry, fromCache) {
   const p = entry.profile || {};
   const meta = entry.meta || {};
@@ -197,7 +286,7 @@ function render(entry, fromCache) {
   const sourceMap = new Map((p.sources || []).map((s) => [s.id, s]));
   const root = $("profile");
   root.replaceChildren();
-  const legacy = !p.leanings; // built by an older version of the prompt
+  const legacy = !p.leanings || (meta.schemaVersion || 0) < PIPELINE_VERSION; // built by an older version of the pipeline
 
   // ----- header
   const rank = { avatar: 0, photo: 1, post: 2, maybe: 4 };
@@ -216,27 +305,42 @@ function render(entry, fromCache) {
   );
 
   if (legacy) {
-    root.append(el("div", { class: "notice" }, "This profile was built by an earlier version without the dashboard. ", el("button", { class: "link", text: "Rebuild it" })));
-    root.querySelector(".notice button").addEventListener("click", () => analyze(true));
+    const notice = el("div", { class: "notice" }, "This profile was built by an earlier version, before the article audit and body-of-work analysis. ", el("button", { class: "link", text: "Rebuild it" }));
+    notice.querySelector("button").addEventListener("click", () => analyze(true));
+    root.append(notice);
+    checkWorker(notice);
   }
 
-  // ----- leaning + style
+  const analyses = meta.analyses || {};
+  const articlesById = new Map((meta.articles || []).map((a) => [a.id, a]));
+  for (const a of meta.articles || []) if (!sourceMap.has(a.id)) sourceMap.set(a.id, { id: a.id, url: a.url, title: a.title || a.url });
+
+  // ----- this article: framing audit + headline comparison
+  if (analyses.framing || analyses.comparison || analyses.skipped) {
+    root.append(framingTile(analyses.framing, analyses.comparison, analyses.skipped));
+  }
+
+  // ----- leaning (revealed) + ledger
   const L = p.leanings || {};
-  const S = p.style || {};
   const evidenceCounts = countEvidence(p, meta);
   root.append(
-    tile("Leaning",
+    tile("Leaning, from output",
+      p.selfPortrait ? el("p", { class: "portrait" }, el("b", { text: "Self-portrait: " }), p.selfPortrait) : null,
       meter("political", L.political, sourceMap),
       meter("social", L.social, sourceMap),
       meter("economic", L.economic, sourceMap),
-      evidenceCounts ? el("p", { class: "muted small basis", text: evidenceCounts }) : null
-    ),
-    tile("Style", meter("opinion", S.opinion, sourceMap), meter("lens", S.lens, sourceMap))
+      evidenceCounts ? el("p", { class: "muted small basis", text: evidenceCounts }) : null,
+      ledgerTile(analyses.corpus, articlesById, analyses.skipped)
+    )
   );
+
+  // ----- style + patterns
+  const S = p.style || {};
+  root.append(tile("Style, from articles", meter("opinion", S.opinion, sourceMap), meter("lens", S.lens, sourceMap), patternsList(analyses.corpus, articlesById)));
 
   // ----- watch for
   const wf = p.watchFor || [];
-  if (wf.length) root.append(tile("Watch for in this article", el("ul", { class: "watch" }, ...wf.map((w) => el("li", { text: w })))));
+  if (wf.length) root.append(tile("Watch for", el("ul", { class: "watch" }, ...wf.map((w) => el("li", { text: w })))));
 
   // ----- evidence
   const ev = p.evidence || [];
@@ -249,14 +353,16 @@ function render(entry, fromCache) {
     root.append(tile("Evidence", list, more));
   }
 
-  // ----- recent work
+  // ----- previous pieces (read in full first)
   const rw = (p.recentWork || []).filter((w) => safeUrl(w.url));
+  const readUrls = new Set((meta.articles || []).map((a) => a.url));
   if (rw.length) {
     root.append(tile("Previous pieces",
       el("ul", { class: "work" }, ...rw.map((w) => el("li", {},
         el("span", { class: `tag kind-${w.kind}`, text: w.kind === "unclear" ? "" : w.kind }),
         el("a", { href: safeUrl(w.url), target: "_blank", rel: "noopener", text: w.title }),
         w.date ? el("span", { class: "muted", text: ` · ${fmtDate(w.date) || w.date}` }) : null,
+        readUrls.has(w.url) ? el("span", { class: "read", title: "Read in full for this dashboard", text: " read" }) : null,
         w.note ? el("div", { class: "muted small", text: w.note }) : null
       )))));
   }
@@ -299,6 +405,10 @@ function render(entry, fromCache) {
   if (wiki && !profs.some((x) => /wikipedia\.org/.test(x.url))) profs.unshift({ label: "Wikipedia", url: wiki.url });
   if (profs.length) moreKids.push(el("h3", { text: "Profiles" }), el("div", { class: "profiles" }, ...profs.map((x) => el("a", { href: safeUrl(x.url), target: "_blank", rel: "noopener", text: x.label }))));
   if (p.sources?.length) moreKids.push(el("h3", { text: "Sources" }), el("ol", { class: "sources" }, ...p.sources.map((s) => el("li", { value: String(s.id).replace(/^s/, "") }, el("a", { href: safeUrl(s.url) || "#", target: "_blank", rel: "noopener", text: s.title || s.url }), s.publisher || s.date ? el("span", { class: "muted", text: ` — ${[s.publisher, s.date].filter(Boolean).join(", ")}` }) : null))));
+  if (meta.articleAttempts?.length) {
+    const ok = meta.articleAttempts.filter((a) => a.ok && a.source === "Article").length;
+    moreKids.push(el("h3", { text: `Articles fetched (${ok} read)` }), el("ul", { class: "attempts-list muted small" }, ...meta.articleAttempts.map((a) => el("li", { text: `${a.source}${a.target ? ` ${a.target.length > 60 ? a.target.slice(0, 57) + "…" : a.target}` : ""}: ${a.ok ? (a.source === "Author page" ? `${a.count} links` : "read") : `skipped, ${a.error || "error"}`}` }))));
+  }
   if (moreKids.length) root.append(el("details", { class: "more" }, el("summary", { text: "More: background, affiliations, sources" }), el("div", { class: "body" }, ...moreKids)));
 
   if (p.caveats?.length) root.append(el("div", { class: "caveats" }, el("strong", { text: "Caveats" }), el("ul", {}, ...p.caveats.map((c) => el("li", { text: c })))));
@@ -347,11 +457,33 @@ function attemptsNote(attempts, open = false) {
     el("ul", { class: "muted small" }, ...lines.map((l) => el("li", { text: l }))));
 }
 
+// ---------- stale worker detection ----------
+// New files on disk reach this page immediately, but the background worker keeps
+// running the script it loaded until the extension is reloaded. Ask it.
+async function checkWorker(anchor) {
+  let running = 0;
+  try {
+    const r = await chrome.runtime.sendMessage({ type: MSG.VERSION });
+    running = r?.pipeline || 0;
+  } catch {
+    running = 0;
+  }
+  if (running >= PIPELINE_VERSION) return false;
+  const warn = el("div", { class: "notice stale" },
+    el("b", { text: "The background worker is running an older build. " }),
+    "Open ", el("code", { text: "chrome://extensions" }), ", click the reload arrow on the Foreword card, then reopen this panel. Rebuilding before that reruns the old pipeline.");
+  if (anchor) anchor.replaceWith(warn); else $("main").prepend(warn);
+  return true;
+}
+
 // ---------- boot ----------
 $("name-input").value = ctx.author || "";
 $("setup-hint").textContent = ctx.title ? `Article: ${ctx.title}` : "";
-if (ctx.author && ctx.autoStart !== false) analyze(false);
-else show("setup");
+checkWorker(null).then((stale) => {
+  if (ctx.author && ctx.autoStart !== false) analyze(false);
+  else show("setup");
+  if (stale) $("setup").hidden = false;
+});
 
 // A new hash means the content script re-pointed the panel at another article.
 window.addEventListener("hashchange", () => {
