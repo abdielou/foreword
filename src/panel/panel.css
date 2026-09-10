@@ -220,3 +220,7 @@ label { display: block; text-align: left; font-size: 12px; color: var(--muted); 
 .notice.stale { background: #fde3e0; color: #7a2418; }
 @media (prefers-color-scheme: dark) { .notice.stale { background: #4a2420; color: #f19a8a; } }
 .notice code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.verdict.v-asymmetric { background: #fde3e0; color: #a33a2a; }
+.verdict.v-symmetric { background: #e3f3e8; color: #1f7a3e; }
+.verdict.v-undetermined { background: var(--chip); color: var(--muted); }
+@media (prefers-color-scheme: dark) { .verdict.v-asymmetric { background: #4a2420; color: #f19a8a; } .verdict.v-symmetric { background: #1d3a28; color: #6fd39a; } }

@@ -196,7 +196,8 @@ function evidenceItem(e, sourceMap) {
 
 const SEV_RANK = { high: 0, medium: 1, low: 2 };
 
-function framingTile(f, comparison, skipped) {
+let symmetrySources = new Map();
+function framingTile(f, comparison, skipped, symmetry) {
   const kids = [];
   if (f) {
     const slant = f.slant || {};
@@ -225,7 +226,11 @@ function framingTile(f, comparison, skipped) {
       more?.addEventListener("click", () => { items.forEach((li) => (li.hidden = false)); more.remove(); });
       kids.push(list, more);
     }
-    if (f.symmetryTest) kids.push(el("p", { class: "symmetry" }, el("b", { text: "Symmetry test: " }), f.symmetryTest));
+    if (symmetry?.verdict) {
+      kids.push(el("p", { class: "symmetry" }, el("span", { class: `verdict v-${symmetry.verdict}`, text: symmetry.verdict }), " ", symmetry.why || "", srcLinks(symmetry.sourceIds, symmetrySources)));
+    } else if (f.symmetryTest) {
+      kids.push(el("p", { class: "symmetry" }, el("b", { text: "Symmetry, from this text alone: " }), f.symmetryTest));
+    }
     if (f.authorVsOutlet) kids.push(el("p", { class: "symmetry" }, el("b", { text: "Author vs outlet: " }), f.authorVsOutlet));
     const src = f.sourcing || {};
     if (src.voices?.length) kids.push(el("p", { class: "muted small", text: `Voices: ${src.voices.join("; ")}${src.monoculture === "yes" ? " — one institution's account presented as the account." : src.monoculture === "partly" ? " — mostly one institution's account." : ""}` }));
@@ -317,7 +322,8 @@ function render(entry, fromCache) {
 
   // ----- this article: framing audit + headline comparison
   if (analyses.framing || analyses.comparison || analyses.skipped) {
-    root.append(framingTile(analyses.framing, analyses.comparison, analyses.skipped));
+    symmetrySources = sourceMap;
+    root.append(framingTile(analyses.framing, analyses.comparison, analyses.skipped, p.symmetry));
   }
 
   // ----- leaning (revealed) + ledger

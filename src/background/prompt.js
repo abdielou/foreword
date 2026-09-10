@@ -36,7 +36,8 @@ You are auditing for bias on behalf of a reader who is about to read the article
 - A benign explanation never cancels a finding. House style, deadline pressure, wire copy, click optimization and bias coexist all the time. Report the effect on the reader first. Motives, if you mention them at all, are a secondary note and never lower a severity.
 - Absence of evidence is not neutrality. When the material is thin, say "insufficient material", never "neutral" or "balanced".
 - Self-description carries no weight. Bios, author pages, employer blurbs, awards and "about" text describe how the author wants to be seen. Leaning and style come from output: articles and posts. If output is missing, the honest answer is "unclear", not "center".
-- Run the symmetry test explicitly: would this framing have appeared if the actor's politics, party, affiliation or identity were flipped? Answer it in one sentence with your reasoning.
+- Conformity is not mitigation. If every outlet frames an event the same way, that is a fact to report, and it never lowers a finding's severity or a slant's strength.
+- The symmetry test asks: would this framing have appeared if the actor's politics, party, affiliation or identity were flipped? Answer it only from evidence: the same author's or outlet's treatment of other actors, or other outlets' treatment of this one. Where no such evidence is in front of you, the answer is "undetermined", never a guess dressed as likelihood.
 - Suspicion is not sloppiness. Quote exact words. Name the effect precisely. Never invent a source, a quote or a fact. If you cannot support a finding with a quote, do not make it.
 
 What to look for: who does the verb (agent framing); which names and brands are made salient and which are hidden; adjective and verb valence toward each actor; sourcing monoculture (one institution's account presented as the account); who is quoted, at what length, and who is characterized instead of quoted; euphemism and loaded terms; "critics say" asymmetries; passive voice for some actors and active for others; insinuation by omission (a fact left hanging next to a suggestive detail); insinuation by juxtaposition (related links, photos, sidebars that imply a connection the text does not claim); headline that says more than the body supports; story selection and what beats the author returns to; corrections that quietly reframe.`;
@@ -58,7 +59,7 @@ export const FRAMING_SCHEMA = obj({
     quote: str("The exact words from the article (or the related-link text) that carry the effect. Under 160 characters."),
     effect: str("At most 25 words. What this does to the reader's understanding, and who it favors or disfavors."),
   }), "Three to eight findings, most consequential first. Each must rest on a quote."),
-  symmetryTest: str("At most 40 words. The answer to: would this framing appear with the actor's politics, party, affiliation or identity flipped? State the counterfactual and your answer."),
+  symmetryTest: str("At most 40 words. State the counterfactual (the same event with the actor's politics, party, affiliation or identity flipped) and what this text alone can say about it. This article by itself usually cannot settle it; say 'undetermined from this text' when so. The body-of-work analysis answers it."),
   authorVsOutlet: str("At most 30 words. Which findings belong to the bylined author (body text, quotes chosen, facts included) and which to the outlet (headline, subhead, modules, photos). Both count; the reader should know whose choice each was."),
   sourcing: obj({
     voices: arr(str("Each distinct source or voice the article relies on, named by role, not by what you expect to find."), ""),
@@ -217,6 +218,11 @@ export const PROFILE_SCHEMA = obj({
     lens: axis(LENS, "Whether they read events through one consistent frame, or engage and fairly state views they disagree with."),
   }, "How they work, judged from articles."),
 
+  symmetry: obj({
+    verdict: en(["asymmetric", "symmetric", "undetermined"], "asymmetric: the author or outlet treats comparable actors differently. symmetric: comparable actors get the same treatment. undetermined: no comparable case in the evidence."),
+    why: str("At most 40 words. The comparable cases you used: how this author or outlet framed other actors in the same situation (from the articles read), or how the field framed this actor. Cite ids."),
+    sourceIds: ids,
+  }, "The symmetry test for this article's framing, answered from the body of work and the field, not from the article alone."),
   watchFor: arr(str("At most 18 words. One concrete thing to keep in mind while reading this specific article, tied to this author's habits, this article's framing, or the field comparison."), "Exactly three when evidence allows; fewer if not."),
 
   evidence: arr(obj({
@@ -267,7 +273,9 @@ Task
 
 Build the final one-glance dashboard for one author. You get: the article's context; an audit of this article's framing; a comparison of its headline with other outlets; an analysis of the author's other articles with a treatment ledger and a revealed leaning; the author's social accounts and recent posts when found; and web sources (bios, profiles, interviews, records).
 
-Weigh them in this order: the author's own posts and the corpus analysis first, the article audit second, interviews and public records third, bios and author pages last and only for role, career and the self-portrait line. A position other than 'unclear' must rest on articles or posts; if all you have is self-description, the axis is 'unclear' with basis 'self-description-only'.
+Weigh them in this order: the author's own posts and the corpus analysis first, the article audit second, interviews and public records third, bios and author pages last and only for role, career and the self-portrait line.
+
+Answer the symmetry test here, from evidence: look in the articles read for the same kind of event with a different actor and compare the framing; look in the field comparison for how others framed this actor. If neither offers a comparable case, the verdict is undetermined and says what evidence would settle it. A position other than 'unclear' must rest on articles or posts; if all you have is self-description, the axis is 'unclear' with basis 'self-description-only'.
 
 Identity first: names collide. Confirm the person from the outlet, beat and subject. For each social account, check the display name, bio and subject matter against the author; an unconfirmed account can support at most low confidence and goes in caveats.
 
